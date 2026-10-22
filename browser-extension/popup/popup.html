@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- ── Header ──────────────────────────────────────────── -->
+  <header id="header">
+    <div class="logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <path d="M9 12l2 2 4-4"/>
+      </svg>
+      <span>VeriTrust AI</span>
+    </div>
+    <span class="badge" id="statusBadge">Ready</span>
+  </header>
+
+  <!-- ── Tab bar ─────────────────────────────────────────── -->
+  <nav id="tabs">
+    <button class="tab active" data-tab="paste">Paste Text</button>
+    <button class="tab" data-tab="scan">Scan Page</button>
+  </nav>
+
+  <!-- ── Paste tab ───────────────────────────────────────── -->
+  <section id="tab-paste" class="tab-content active">
+    <textarea id="inputText" placeholder="Paste a headline, claim, or article here…" rows="6"></textarea>
+    <button id="analyzeBtn" class="btn-primary">
+      <span class="btn-label">Analyze Text</span>
+      <span class="spinner hidden"></span>
+    </button>
+  </section>
+
+  <!-- ── Scan tab ────────────────────────────────────────── -->
+  <section id="tab-scan" class="tab-content">
+    <p class="hint">Click below to extract and analyze the main text content of the current page.</p>
+    <button id="scanBtn" class="btn-primary">
+      <span class="btn-label">Scan This Page</span>
+      <span class="spinner hidden"></span>
+    </button>
+    <div id="extractedPreview" class="extracted-preview hidden"></div>
+  </section>
+
+  <!-- ── Results area (shared) ───────────────────────────── -->
+  <section id="results" class="hidden">
+    <div id="verdictBanner"></div>
+    <p id="summaryText"></p>
+    <p id="explanationText"></p>
+    <div id="claimsList"></div>
+    <div id="analysisNotes" class="hidden"></div>
+  </section>
+
+  <!-- ── Error banner ────────────────────────────────────── -->
+  <div id="errorBanner" class="error-banner hidden"></div>
+
+  <!-- ── Settings row ────────────────────────────────────── -->
+  <footer id="footer">
+    <label class="api-label" for="apiUrl">Backend URL</label>
+    <input id="apiUrl" type="text" value="http://127.0.0.1:8001" spellcheck="false">
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
