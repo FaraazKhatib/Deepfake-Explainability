@@ -82,7 +82,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=video_settings.allowed_origins_list,
+    allow_origins=["*"],
     allow_origin_regex=r"^chrome-extension://.*$",
     allow_credentials=False,
     allow_methods=["*"],
