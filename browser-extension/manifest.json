@@ -5,7 +5,8 @@
   "description": "Check any news article or text for misinformation using VeriTrust AI's fact-checking engine. Paste text or scan the current page.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "action": {
     "default_popup": "popup/popup.html",
