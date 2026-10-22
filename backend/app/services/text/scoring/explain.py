@@ -1,10 +1,6 @@
 """
-Human-readable explanation of a fact-check result.
-
-Same rule as the text-detector module: every sentence must be tied to
-something actually retrieved or computed in this request. No template fires
-without its evidence, and the explanation always names real outlets and counts
-rather than asserting a conclusion the pipeline did not establish.
+Human-readable, simplified explanation of a fact-check result.
+Provides clear, plain-English explanations that everyday users can easily understand.
 """
 
 from __future__ import annotations
@@ -22,77 +18,73 @@ from .verdict import (
 )
 
 _DISCLAIMER = (
-    "This is an automated evidence check, not a determination of truth. It "
-    "reports what a set of searchable sources say right now; sources can be "
-    "wrong, can repeat each other, and may not yet cover a developing story."
+    "Note: This is an automated check of currently indexed news and may not reflect "
+    "breaking or developing events."
 )
 
 
-def _outlet_list(stances, limit: int = 4) -> str:
+def _outlet_list(stances, limit: int = 3) -> str:
+    """Format a readable list of news outlets."""
     names = [d.outlet or d.domain for d in stances[:limit]]
     if not names:
         return ""
     if len(stances) > limit:
-        return ", ".join(names) + f" and {len(stances) - limit} more"
+        return ", ".join(names) + f" and {len(stances) - limit} others"
     if len(names) == 1:
         return names[0]
     return ", ".join(names[:-1]) + f" and {names[-1]}"
 
 
 def explain_claim(verdict: ClaimVerdict) -> str:
-    """Narrative for one claim, grounded in the sources actually found."""
+    """Narrative for one claim in simple, clear English."""
     parts: List[str] = []
 
     if verdict.verdict == VERDICT_SUPPORTED:
-        parts.append(
-            f"{len(verdict.supporting_domains)} independent source(s) "
-            f"({_outlet_list(verdict.supporting_domains)}) published material "
-            "consistent with this claim."
-        )
+        outlets = _outlet_list(verdict.supporting_domains)
+        source_str = f" ({outlets})" if outlets else ""
         if verdict.refuting_domains:
             parts.append(
-                f"{len(verdict.refuting_domains)} source(s) "
-                f"({_outlet_list(verdict.refuting_domains)}) appeared to "
-                "contradict it, but carried less weight."
+                f"Supported: Verified by {len(verdict.supporting_domains)} source(s){source_str}, "
+                "though a few sources raised counter-points."
             )
+        else:
+            parts.append(
+                f"Supported: Confirmed by {len(verdict.supporting_domains)} credible source(s){source_str}."
+            )
+
     elif verdict.verdict == VERDICT_REFUTED:
-        parts.append(
-            f"{len(verdict.refuting_domains)} independent source(s) "
-            f"({_outlet_list(verdict.refuting_domains)}) published material that "
-            "contradicts this claim."
-        )
+        outlets = _outlet_list(verdict.refuting_domains)
+        source_str = f" ({outlets})" if outlets else ""
         if verdict.supporting_domains:
             parts.append(
-                f"{len(verdict.supporting_domains)} source(s) appeared to support "
-                "it, so read both sets below."
+                f"Contradicted: Debunked or refuted by {len(verdict.refuting_domains)} source(s){source_str}, "
+                "though some conflicting reports exist."
             )
+        else:
+            parts.append(
+                f"Contradicted: Debunked or contradicted by {len(verdict.refuting_domains)} credible source(s){source_str}."
+            )
+
     elif verdict.verdict == VERDICT_DISPUTED:
         parts.append(
-            f"Sources are split: {len(verdict.supporting_domains)} "
-            f"({_outlet_list(verdict.supporting_domains)}) are consistent with "
-            f"the claim and {len(verdict.refuting_domains)} "
-            f"({_outlet_list(verdict.refuting_domains)}) contradict it."
+            f"Disputed: Sources disagree on this claim. {len(verdict.supporting_domains)} source(s) support it "
+            f"while {len(verdict.refuting_domains)} source(s) contradict it."
         )
+
     else:
-        parts.append(
-            f"Of {verdict.evidence_examined} retrieved item(s) across "
-            f"{verdict.independent_domains} domain(s), none clearly took a "
-            "position on this claim."
-            if not verdict.supporting_domains and not verdict.refuting_domains
-            else (
-                f"Only {len(verdict.supporting_domains) + len(verdict.refuting_domains)} "
-                "source(s) addressed the claim, which is below the threshold "
-                "needed to report a verdict."
+        # Unverified
+        if not verdict.supporting_domains and not verdict.refuting_domains:
+            parts.append(
+                "Unverified: No credible news sources were found confirming or denying this claim."
             )
-        )
+        else:
+            parts.append(
+                "Unverified: Found limited mentions, but not enough verified reporting to confirm or deny this claim."
+            )
 
-    if verdict.unrelated_count:
-        parts.append(
-            f"{verdict.unrelated_count} retrieved item(s) matched the search "
-            "terms but did not address the claim itself."
-        )
+    if verdict.notes:
+        parts.extend(verdict.notes)
 
-    parts.extend(verdict.notes)
     return " ".join(p for p in parts if p)
 
 
@@ -101,60 +93,84 @@ def explain_overall(
     retrieval: RetrievalReport,
     style: Optional[StyleAssessment] = None,
 ) -> str:
-    """Document-level narrative, including retrieval coverage and style."""
+    """Document-level narrative written in plain English for regular readers."""
     parts: List[str] = []
 
-    sources_used = ", ".join(
-        f"{name} ({count})" for name, count in retrieval.per_source_counts.items()
-    )
-    parts.append(
-        f"Checked {len(verdicts)} claim(s) against {len(retrieval.evidence)} "
-        f"evidence item(s) retrieved from: {sources_used or 'no source'}."
-    )
+    n_claims = len(verdicts)
+    refuted = sum(1 for v in verdicts if v.verdict == VERDICT_REFUTED)
+    supported = sum(1 for v in verdicts if v.verdict == VERDICT_SUPPORTED)
+    disputed = sum(1 for v in verdicts if v.verdict == VERDICT_DISPUTED)
+    unverified = sum(1 for v in verdicts if v.verdict == VERDICT_UNVERIFIED)
 
-    if retrieval.errors:
-        failed = ", ".join(retrieval.errors.keys())
+    # 1. Main finding summary
+    if refuted > 0:
+        if refuted == n_claims:
+            parts.append(
+                f"We checked {n_claims} key statement(s) against current public news sources. "
+                "All checked statements were contradicted or debunked by credible reporting."
+            )
+        else:
+            parts.append(
+                f"We checked {n_claims} key statement(s) against current public news sources. "
+                f"{refuted} statement(s) were contradicted by credible reporting."
+            )
+    elif disputed > 0:
         parts.append(
-            f"Evidence coverage was reduced: {failed} did not respond, so this "
-            "check saw less of the record than usual."
+            f"We checked {n_claims} key statement(s) against current public news sources. "
+            "Credible news outlets report conflicting information on this topic."
         )
-    # Notices are working behaviour, not failures, and are worded as such.
-    for notice in retrieval.notices.values():
-        parts.append(notice)
+    elif supported > 0 and unverified == 0:
+        parts.append(
+            f"We checked {n_claims} key statement(s) against current public news sources. "
+            "Independent reporting confirms the main claims."
+        )
+    elif supported > 0 and unverified > 0:
+        parts.append(
+            f"We checked {n_claims} key statement(s) against current public news sources. "
+            f"{supported} statement(s) were confirmed by sources, while {unverified} statement(s) "
+            "could not be verified."
+        )
+    else:
+        # All unverified
+        parts.append(
+            f"We checked {n_claims} key statement(s) against current public news and web sources. "
+            "None of the statements could be confirmed or debunked by credible reporting. "
+            "This usually happens when a story is satire, fictional, very new, or simply "
+            "not covered by established news outlets."
+        )
 
-    counts = {}
-    for verdict in verdicts:
-        counts[verdict.verdict] = counts.get(verdict.verdict, 0) + 1
-    if counts:
-        summary = "; ".join(f"{count} {label.lower()}" for label, count in counts.items())
-        parts.append(f"Per-claim outcome: {summary}.")
-
+    # 2. Writing style note if notable
     if style is not None:
         if style.manipulation_risk >= 0.6:
-            detail = f" ({'; '.join(style.observations[:3])})" if style.observations else ""
             parts.append(
-                f"Separately, the writing style scores {style.manipulation_risk:.2f} "
-                f"on presentation-manipulation markers{detail}. This describes how "
-                "the text is written, not whether it is true, and it did not "
-                "affect the verdict above."
+                "Writing style note: The text uses emotional or sensational wording often found in clickbait."
             )
-        elif style.observations:
+        elif style.manipulation_risk <= 0.2 and style.observations:
             parts.append(
-                f"Presentation-manipulation score is low ({style.manipulation_risk:.2f}); "
-                "note that a calm, professional style is not evidence of accuracy."
+                "Writing style note: The text uses neutral, straightforward language."
             )
 
+    # 3. Simple disclaimer
     parts.append(_DISCLAIMER)
-    return " ".join(p for p in parts if p)
+
+    return "\n\n".join(parts)
 
 
 def short_summary(overall: dict, verdicts: List[ClaimVerdict]) -> str:
-    """One-line summary for compact UIs."""
+    """One-line summary for compact cards and extension UI."""
     total_sources = sum(
         len(v.supporting_domains) + len(v.refuting_domains) for v in verdicts
     )
-    return (
-        f"{overall['overall']} across {overall['claim_count']} claim(s), "
-        f"based on {total_sources} independent source(s). "
-        "Automated evidence check, not a determination of truth."
-    )
+    status = overall.get("overall", VERDICT_UNVERIFIED)
+    n_claims = overall.get("claim_count", len(verdicts))
+
+    if status == VERDICT_SUPPORTED:
+        return f"Verified: Key claims are supported by {total_sources} independent news source(s)."
+    elif status == VERDICT_REFUTED:
+        return "Likely False: Key claims are contradicted or debunked by independent news reports."
+    elif status == VERDICT_DISPUTED:
+        return "Disputed: News sources report conflicting details on these claims."
+    else:
+        if total_sources > 0:
+            return f"Unverified: Checked {n_claims} claim(s), but there is not enough confirmed reporting to verify this story."
+        return "Unverified: No credible news reports were found covering these claims."

@@ -347,13 +347,12 @@ def combine_claim_verdicts(verdicts: List[ClaimVerdict]) -> dict:
     elif supported:
         overall = VERDICT_UNVERIFIED
         rationale = (
-            f"{len(supported)} claim(s) corroborated but {len(unverified)} could "
-            "not be checked against any source, so the document as a whole is "
-            "not verified."
+            f"{len(supported)} claim(s) confirmed, but {len(unverified)} could "
+            "not be verified by independent sources."
         )
     else:
         overall = VERDICT_UNVERIFIED
-        rationale = "No checked claim could be matched to supporting or refuting evidence."
+        rationale = "None of the checked claims could be confirmed or refuted by current news sources."
 
     return {
         "overall": overall,
