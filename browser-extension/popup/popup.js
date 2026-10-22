@@ -339,6 +339,21 @@ async function initPopup() {
 
 // ── Extract visible article text from the page (injected) ─────────
 function extractPageText() {
+  // 1. Extract the article headline / title (crucial for news fact-checking)
+  let headline = '';
+  const h1 = document.querySelector('article h1, main h1, [role="main"] h1, h1');
+  if (h1 && h1.innerText?.trim()) {
+    headline = h1.innerText.trim();
+  } else {
+    const ogTitle = document.querySelector('meta[property="og:title"]')?.content;
+    if (ogTitle && ogTitle.trim()) {
+      headline = ogTitle.trim();
+    } else if (document.title) {
+      headline = document.title.replace(/\s*[-–—|]\s*[^ -–—|]+$/, '').trim();
+    }
+  }
+
+  // 2. Locate the main article container
   const candidates = [
     ...document.querySelectorAll('article'),
     document.querySelector('main'),
@@ -364,14 +379,29 @@ function extractPageText() {
     container = document.body;
   }
 
-  const paragraphs = container.querySelectorAll('p');
-  if (paragraphs.length > 3) {
-    const texts = Array.from(paragraphs)
-      .map((p) => p.innerText?.trim())
-      .filter((t) => t && t.length > 20);
-    if (texts.length > 0) {
-      return texts.join('\n\n');
-    }
+  // 3. Extract the lead paragraphs (top 3-4 clean paragraphs hold the core facts)
+  const paragraphs = Array.from(container.querySelectorAll('p'))
+    .map((p) => p.innerText?.trim())
+    .filter((t) => {
+      if (!t || t.length < 25) return false;
+      const lower = t.toLowerCase();
+      if (lower.includes('copyright') || lower.includes('all rights reserved') || lower.includes('terms of service')) return false;
+      if (lower.startsWith('read more') || lower.startsWith('follow us') || lower.startsWith('sign up')) return false;
+      return true;
+    });
+
+  const leadParagraphs = paragraphs.slice(0, 4);
+
+  const parts = [];
+  if (headline) {
+    parts.push(headline);
+  }
+  if (leadParagraphs.length > 0) {
+    parts.push(...leadParagraphs);
+  }
+
+  if (parts.length > 0) {
+    return parts.join('\n\n');
   }
 
   return container.innerText?.trim() || '';

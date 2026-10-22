@@ -208,7 +208,17 @@ def extract_claims(
             sentences_examined=len(sentences),
         )
 
-    scored.sort(key=lambda c: (-c.score, c.position))
-    selected = scored[:max_claims]
+    # Ensure the headline / first sentence (position 0) is prioritized
+    # because the lead assertion of an article represents the central topic.
+    first_claim = next((c for c in scored if c.position == 0), None)
+    other_claims = [c for c in scored if c.position != 0]
+    other_claims.sort(key=lambda c: (-c.score, c.position))
+
+    if first_claim is not None:
+        selected = [first_claim] + other_claims[: max(0, max_claims - 1)]
+    else:
+        selected = other_claims[:max_claims]
+
     selected.sort(key=lambda c: c.position)  # restore reading order
     return selected
+

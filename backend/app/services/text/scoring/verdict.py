@@ -343,13 +343,22 @@ def combine_claim_verdicts(verdicts: List[ClaimVerdict]) -> dict:
         rationale = f"{len(disputed)} of {len(verdicts)} checked claim(s) are disputed."
     elif supported and not unverified:
         overall = VERDICT_SUPPORTED
-        rationale = "Every checked claim was corroborated by independent sources."
+        rationale = "Every checked claim was confirmed by independent sources."
     elif supported:
-        overall = VERDICT_UNVERIFIED
-        rationale = (
-            f"{len(supported)} claim(s) confirmed, but {len(unverified)} could "
-            "not be verified by independent sources."
-        )
+        # If the lead claim (headline) is supported or at least half the claims are confirmed,
+        # and none are refuted or disputed, the main story is confirmed.
+        if (verdicts and verdicts[0].verdict == VERDICT_SUPPORTED) or len(supported) >= len(unverified):
+            overall = VERDICT_SUPPORTED
+            rationale = (
+                f"The main story is confirmed by independent sources "
+                f"({len(supported)} claim(s) confirmed, {len(unverified)} secondary detail(s) unverified)."
+            )
+        else:
+            overall = VERDICT_UNVERIFIED
+            rationale = (
+                f"{len(supported)} claim(s) confirmed, but {len(unverified)} could "
+                "not be verified by independent sources."
+            )
     else:
         overall = VERDICT_UNVERIFIED
         rationale = "None of the checked claims could be confirmed or refuted by current news sources."
