@@ -246,6 +246,17 @@ AUDIO_MODELS: tuple[ModelSpec, ...] = (
             "the same architecture and label order."
         ),
     ),
+    ModelSpec(
+        key="acoustic_forensics",
+        repo=str(BASE_DIR / "weights" / "acoustic_forensics.joblib"),
+        kind=AUDIO,
+        weight=1.5,
+        is_local=True,
+        notes=(
+            "Acoustic physical & spectral forensic classifier; detects flow-matching (VoiceBox), "
+            "diffusion (FlashSpeech), and neural vocoder artifacts."
+        ),
+    ),
 )
 
 IMAGE_MODELS: tuple[ModelSpec, ...] = (

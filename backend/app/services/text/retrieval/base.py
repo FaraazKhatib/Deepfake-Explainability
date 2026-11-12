@@ -208,9 +208,8 @@ def http_get(
             last_error = f"HTTP {exc.code}"
             if exc.code == 429:
                 last_error = "rate limited (HTTP 429)"
-                # GDELT throttles aggressively; back off harder than usual.
-                time.sleep(1.5 * (attempt + 1))
-                continue
+                logger.warning("Upstream rate limited (HTTP 429): %s", url)
+                break
             if 400 <= exc.code < 500 and exc.code != 429:
                 break  # client errors will not fix themselves on retry
         except (URLError, OSError) as exc:

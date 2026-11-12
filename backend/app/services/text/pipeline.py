@@ -33,6 +33,7 @@ from .stance.debunk import detect_reported_speech
 from .stance.nli import StanceDetector
 from .style.classifier import StyleAssessment, StyleClassifier
 from .textutils import clean_text, split_sentences
+from .translation import translate_to_english
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ class FactCheckPipeline:
         max_claims: Optional[int] = None,
         treat_as_single_claim: bool = False,
         include_evidence: bool = True,
+        source_language: Optional[str] = None,
     ) -> dict:
         """
         Run a full fact check.
@@ -104,8 +106,15 @@ class FactCheckPipeline:
             )
 
         cleaned = clean_text(text)
+        translation_info = translate_to_english(cleaned, source_hint=source_language or "")
+        effective_text = (
+            translation_info["text"]
+            if translation_info.get("was_translated")
+            else cleaned
+        )
+
         claims: List[Claim] = extract_claims(
-            cleaned,
+            effective_text,
             max_claims=max_claims,
             treat_as_single_claim=treat_as_single_claim,
         )
@@ -114,9 +123,9 @@ class FactCheckPipeline:
         # verdict path (see style/classifier.py for why).
         style: Optional[StyleAssessment] = None
         if self.style_classifier is not None:
-            sentences = split_sentences(cleaned)
+            sentences = split_sentences(effective_text)
             headline = sentences[0] if sentences else ""
-            style = self.style_classifier.assess(cleaned, title=headline)
+            style = self.style_classifier.assess(effective_text, title=headline)
 
         claim_payloads = []
         verdicts: List[ClaimVerdict] = []
@@ -179,6 +188,8 @@ class FactCheckPipeline:
             "unverified_claims": overall.get("unverified", 0),
             "explanation": explain_overall(verdicts, merged_report, style),
             "summary": short_summary(overall, verdicts),
+            # --- multilingual details -----------------------------------------
+            "translation": translation_info,
             # --- detail ------------------------------------------------------
             "claims": claim_payloads,
             "manipulation_risk": style.to_dict() if style else None,
@@ -190,6 +201,7 @@ class FactCheckPipeline:
                 "style_affects_verdict": config.STYLE_AFFECTS_VERDICT,
                 "processing_time_ms": round(elapsed_ms, 1),
                 "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                **({"notes": [f"Automatically translated from {translation_info.get('source_language_name', 'detected language')} to English for fact-checking."]} if translation_info.get("was_translated") else {}),
             },
         }
 

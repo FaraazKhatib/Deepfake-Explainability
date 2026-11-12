@@ -10,13 +10,16 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 
 from .. import config
 from ..exceptions import ModelLoadError
 from ..pipeline import FactCheckPipeline
 from ..retrieval.base import clear_cache
+from ..translation import translate_to_english
 from ..schemas.response import (
     CheckNewsRequest,
+    TranslateRequest,
     CheckNewsResponse,
     ErrorResponse,
     HealthResponse,
@@ -105,7 +108,20 @@ def check_news(
         max_claims=payload.max_claims,
         treat_as_single_claim=payload.single_claim,
         include_evidence=payload.include_evidence,
+        source_language=payload.source_language,
     )
+
+
+
+
+
+@router.post(
+    "/translate",
+    summary="Translate text to English with automatic language detection",
+)
+def translate(payload: TranslateRequest):
+    """Detect language and translate to English."""
+    return translate_to_english(payload.text, source_hint=payload.source_language or "")
 
 
 @router.get(

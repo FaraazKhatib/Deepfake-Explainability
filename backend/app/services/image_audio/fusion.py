@@ -345,6 +345,8 @@ def _score_prior(rows: list[tuple[Signal, float]], cfg: FusionConfig) -> tuple[f
         weight = _prior_weight(signal, cfg)
         if weight <= 0:
             continue
+        if signal.kind == AUDIO and effective >= 0.65:
+            weight *= 2.5
         voted.add(id(signal))
         weighted += weight * logit(effective)
         total += weight
@@ -584,6 +586,10 @@ def fuse(
         all(s.p_fake >= thresholds.ai_min for s, _ in ml_rows)
         or all(s.p_fake <= thresholds.authentic_max for s, _ in ml_rows)
     )
+    audio_positives = [s for s, _ in ml_rows if s.kind == AUDIO and s.p_fake >= thresholds.ai_min]
+    if score >= thresholds.ai_min and audio_positives:
+        same_decisive_band = True
+
     if spread > limit and not same_decisive_band:
         confidence = 0.0
         verdict = VERDICT_UNCERTAIN

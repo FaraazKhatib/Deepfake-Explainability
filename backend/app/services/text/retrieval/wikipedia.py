@@ -91,9 +91,9 @@ def search(query: str, max_articles: int | None = None) -> List[Evidence]:
                 url=f"https://{_DOMAIN}/wiki/{title.replace(' ', '_')}",
                 domain=_DOMAIN,
                 source=SOURCE_NAME,
-                # Only the first part of the intro: NLI premises are truncated
-                # anyway and the opening sentences carry the definitional facts.
-                snippet=intro[:800],
+                # Comprehensive intro: captures multi-paragraph introductory summaries
+                # (including date, event, and aftermath) within NLI model bounds.
+                snippet=intro[:1800],
                 published=None,  # revision date is not fetched; not a news item
                 outlet="Wikipedia",
             )

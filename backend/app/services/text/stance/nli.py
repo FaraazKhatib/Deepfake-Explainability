@@ -92,6 +92,83 @@ class StanceResult:
         return payload
 
 
+_EVENT_ROOTS = {
+    # Crime / violent incidents
+    "shoot", "shot", "fir", "attack", "kill", "injur", "arrest", "detain", "accused", "custody", "suspect", "probe", "homicide", "murder", "surviv", "wound", "gun", "blast", "crash",
+    # Aviation / accidents / disasters
+    "break", "broke", "breakup", "plung", "fall", "fell", "wreck", "collid", "collis", "destroy", "fatal", "dead", "die", "plane", "jet", "flight", "pilot", "air",
+    # Maritime / naval / general disaster & incident
+    "disaster", "implod", "submersible", "sub", "sink", "sank", "vessel", "boat", "capsiz", "tragedy", "incident", "drown",
+    # Sports / competition outcomes
+    "win", "won", "victor", "beat", "defeat", "score", "goal", "rescu", "triumph", "clinch", "prevail", "hold",
+}
+
+
+def _is_false_contradiction(claim: str, premise: str) -> bool:
+    """
+    Detect when an NLI model mislabels follow-up, reaction, or roundup coverage as a contradiction.
+
+    If the premise reports on the incident/match without explicit debunk language,
+    it is reporting on the real-world event, not refuting that it happened.
+    """
+    from .debunk import find_debunk_terms
+    if find_debunk_terms(premise):
+        return False
+
+    from ..textutils import proper_nouns, tokenize_words
+    claim_words = {w.lower() for w in tokenize_words(claim)}
+    premise_words = {w.lower() for w in tokenize_words(premise)}
+
+    claim_events = {r for r in _EVENT_ROOTS if any(r in w for w in claim_words)}
+    premise_events = {r for r in _EVENT_ROOTS if any(r in w for w in premise_words)}
+    shares_event = bool(claim_events and premise_events)
+
+    claim_entities = {e.lower() for e in proper_nouns(claim) if e.lower() not in _GENERIC_ENTITIES}
+    premise_entities = {e.lower() for e in proper_nouns(premise) if e.lower() not in _GENERIC_ENTITIES}
+    shares_entity = bool(claim_entities & premise_entities)
+
+    # Multi-match roundup check: if premise lists multiple distinct matches or contains roundup indicators,
+    # it is summarizing matchday results, not refuting.
+    premise_lower = premise.lower()
+    is_roundup = any(m in premise_lower for m in ["roundup", "wins for", "hold on in", "stats & head-to-head"]) or (
+        premise.count(",") >= 2 and any(v in premise_lower for v in ["win", "beat", "hold", "defeat"])
+    )
+
+    return (shares_event and shares_entity) or (is_roundup and shares_entity)
+
+
+_GENERIC_ENTITIES = {
+    "police", "officials", "authorities", "investigators", "report", "news",
+    "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "attack", "court", "government", "source", "sources", "people", "state", "city",
+    "president", "minister", "officer", "officers", "department",
+    # Sports/tournament & competition generics
+    "champions", "league", "cup", "tournament", "series", "premier", "roundup",
+    "match", "game", "season", "title", "race", "round", "division", "trophy",
+    # Common verbs often capitalized in headlines
+    "rescues", "rescue", "hold", "holds", "held", "wins", "win", "won",
+    "beats", "beat", "scores", "scored", "scoring", "leads", "led",
+    "survives", "survived", "stays", "stayed", "cruises", "cruised",
+    "picks", "picked", "clinches", "clinched", "urges", "urged",
+    "man",  # avoid bare "man" from "Man City" matching
+}
+
+
+def _shares_specific_entity(claim: str, premise: str) -> bool:
+    """Return True if premise shares at least one specific named entity with the claim."""
+    from ..textutils import proper_nouns, tokenize_words
+    raw_entities = [e.lower() for e in proper_nouns(claim)]
+    specific = [e for e in raw_entities if e not in _GENERIC_ENTITIES and len(e) >= 3]
+    if not specific:
+        return True  # If claim has no specific proper nouns, don't gate on this
+    premise_lower = premise.lower()
+    p_words = {w.lower() for w in tokenize_words(premise)}
+    return any(
+        e in premise_lower or any(w in p_words for w in tokenize_words(e) if len(w) >= 3 and w not in _GENERIC_ENTITIES)
+        for e in specific
+    )
+
+
 class StanceDetector:
     """Loads the NLI model once and scores (claim, evidence) pairs in batches."""
 
@@ -151,8 +228,12 @@ class StanceDetector:
                 if config.HF_TOKEN:
                     kwargs["token"] = config.HF_TOKEN
 
-                tokenizer = AutoTokenizer.from_pretrained(name, **kwargs)
-                model = AutoModelForSequenceClassification.from_pretrained(name, **kwargs)
+                try:
+                    tokenizer = AutoTokenizer.from_pretrained(name, local_files_only=True, **kwargs)
+                    model = AutoModelForSequenceClassification.from_pretrained(name, local_files_only=True, **kwargs)
+                except Exception:
+                    tokenizer = AutoTokenizer.from_pretrained(name, **kwargs)
+                    model = AutoModelForSequenceClassification.from_pretrained(name, **kwargs)
             except Exception as exc:
                 self.load_errors.append(f"{name}: {type(exc).__name__}: {exc}")
                 logger.warning("Could not load NLI model '%s': %s", name, exc)
@@ -271,6 +352,21 @@ class StanceDetector:
                         debunk_fired = override.fired
                         if debunk_fired:
                             gated = False
+
+                        # Prevent false refutations: if the snippet is follow-up/reaction
+                        # coverage about the exact same event and subject, DeBERTa's
+                        # contradiction prediction is a known zero-shot artifact.
+                        if stance == STANCE_REFUTES and not debunk_fired:
+                            if _is_false_contradiction(claim, item.premise):
+                                stance = STANCE_SUPPORTS if entail >= 0.35 else STANCE_UNRELATED
+                                contra = min(contra, 0.20)
+                            elif not _shares_specific_entity(claim, item.premise):
+                                # Cross-topic refutation safeguard: A snippet cannot refute a claim
+                                # about specific named entities if it does not mention them at all.
+                                # (Prevents generic police/arrest stories from Africa or Texas from
+                                # falsely "contradicting" a Bollywood news claim).
+                                stance = STANCE_UNRELATED
+                                contra = min(contra, 0.20)
 
                         results.append(
                             StanceResult(

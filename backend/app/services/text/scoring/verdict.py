@@ -262,10 +262,15 @@ def decide(
             )
         else:
             found = len(supporting) + len(refuting)
-            notes.append(
-                f"Not enough sources found ({found}) to make a verdict. "
-                f"We need at least {minimum}."
-            )
+            if found < minimum:
+                notes.append(
+                    f"Not enough sources found ({found}) to make a verdict. "
+                    f"We need at least {minimum}."
+                )
+            else:
+                notes.append(
+                    f"Evidence found ({found} sources), but confidence does not meet the verification threshold."
+                )
 
     if verdict == VERDICT_SUPPORTED:
         band = _confidence_band(support_weight, refute_weight, len(supporting))
@@ -345,20 +350,13 @@ def combine_claim_verdicts(verdicts: List[ClaimVerdict]) -> dict:
         overall = VERDICT_SUPPORTED
         rationale = "Every checked claim was confirmed by independent sources."
     elif supported:
-        # If the lead claim (headline) is supported or at least half the claims are confirmed,
-        # and none are refuted or disputed, the main story is confirmed.
-        if (verdicts and verdicts[0].verdict == VERDICT_SUPPORTED) or len(supported) >= len(unverified):
-            overall = VERDICT_SUPPORTED
-            rationale = (
-                f"The main story is confirmed by independent sources "
-                f"({len(supported)} claim(s) confirmed, {len(unverified)} secondary detail(s) unverified)."
-            )
-        else:
-            overall = VERDICT_UNVERIFIED
-            rationale = (
-                f"{len(supported)} claim(s) confirmed, but {len(unverified)} could "
-                "not be verified by independent sources."
-            )
+        # When independent sources confirm one or more core claims and none are
+        # contradicted or disputed, the story's factual backbone is supported.
+        overall = VERDICT_SUPPORTED
+        rationale = (
+            f"Core reporting is confirmed by independent sources "
+            f"({len(supported)} claim(s) confirmed, {len(unverified)} secondary detail(s) unverified)."
+        )
     else:
         overall = VERDICT_UNVERIFIED
         rationale = "None of the checked claims could be confirmed or refuted by current news sources."

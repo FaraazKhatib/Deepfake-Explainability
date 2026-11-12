@@ -58,7 +58,7 @@ NLI_FALLBACK_MODELS: List[str] = [
     ).split(",")
     if m.strip()
 ]
-NLI_MAX_LENGTH = _env_int("FC_NLI_MAX_LENGTH", 256)
+NLI_MAX_LENGTH = _env_int("FC_NLI_MAX_LENGTH", 512)
 NLI_BATCH_SIZE = _env_int("FC_NLI_BATCH_SIZE", 8)
 
 # Minimum probability before a snippet counts as taking a side at all.
@@ -238,8 +238,8 @@ SINGLE_SOURCE_MIN_STANCE = _env_float("FC_SINGLE_SOURCE_MIN_STANCE", 0.70)
 
 # Weighted-evidence thresholds. Weight per domain =
 #   credibility_weight * stance_confidence * recency_factor
-SUPPORT_THRESHOLD = _env_float("FC_SUPPORT_THRESHOLD", 1.2)
-REFUTE_THRESHOLD = _env_float("FC_REFUTE_THRESHOLD", 1.0)
+SUPPORT_THRESHOLD = _env_float("FC_SUPPORT_THRESHOLD", 0.80)
+REFUTE_THRESHOLD = _env_float("FC_REFUTE_THRESHOLD", 0.70)
 # When both sides clear their thresholds and neither dominates by this ratio,
 # the verdict is "Disputed" rather than a coin flip.
 DISPUTE_RATIO = _env_float("FC_DISPUTE_RATIO", 2.0)
@@ -252,7 +252,7 @@ RECENCY_MIN_FACTOR = _env_float("FC_RECENCY_MIN_FACTOR", 0.35)
 # Credibility weight given to a domain that is not in the ratings file.
 # Deliberately mid-low: unknown is not the same as untrustworthy, but an
 # unrated domain should not outvote a wire service.
-UNRATED_SOURCE_WEIGHT = _env_float("FC_UNRATED_WEIGHT", 0.40)
+UNRATED_SOURCE_WEIGHT = _env_float("FC_UNRATED_WEIGHT", 0.50)
 CREDIBILITY_FILE = _env_str("FC_CREDIBILITY_FILE", "data/source_credibility.csv")
 
 

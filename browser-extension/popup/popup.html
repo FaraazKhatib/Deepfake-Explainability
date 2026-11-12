@@ -15,7 +15,10 @@
       </svg>
       <span>VeriTrust AI</span>
     </div>
-    <span class="badge" id="statusBadge">Ready</span>
+    <div class="header-actions">
+      <button id="resetBtn" class="btn-reset" title="Start a fresh check" style="display:none;">New Check</button>
+      <span class="badge" id="statusBadge">Ready</span>
+    </div>
   </header>
 
   <!-- ── Tab bar ─────────────────────────────────────────── -->
@@ -26,16 +29,22 @@
 
   <!-- ── Paste tab ───────────────────────────────────────── -->
   <section id="tab-paste" class="tab-content active">
-    <textarea id="inputText" placeholder="Paste a headline, claim, or article here…" rows="6"></textarea>
-    <button id="analyzeBtn" class="btn-primary">
-      <span class="btn-label">Analyze Text</span>
-      <span class="spinner hidden"></span>
-    </button>
+    <textarea id="inputText" placeholder="Paste a headline, claim, or article in any language (English, Hindi, Spanish, etc.)…" rows="6"></textarea>
+    <div class="action-buttons">
+      <button id="analyzeBtn" class="btn-primary">
+        <span class="btn-label">Analyze Text</span>
+        <span class="spinner hidden"></span>
+      </button>
+      <button id="translateBtn" class="btn-secondary" type="button" title="Translate text to English">
+        <span class="btn-label">🌐 Translate</span>
+        <span class="spinner hidden"></span>
+      </button>
+    </div>
   </section>
 
   <!-- ── Scan tab ────────────────────────────────────────── -->
   <section id="tab-scan" class="tab-content">
-    <p class="hint">Click below to extract and analyze the main text content of the current page.</p>
+    <p class="hint">Click below to extract and analyze the main text content of the current page (supports multilingual news pages).</p>
     <button id="scanBtn" class="btn-primary">
       <span class="btn-label">Scan This Page</span>
       <span class="spinner hidden"></span>
@@ -45,6 +54,14 @@
 
   <!-- ── Results area (shared) ───────────────────────────── -->
   <section id="results" class="hidden">
+    <div id="translationBanner" class="translation-banner hidden">
+      <div class="translation-info">
+        <span class="globe-icon">🌐</span>
+        <span id="translationText">Translated to English</span>
+      </div>
+      <button id="viewOriginalBtn" class="btn-text-toggle" type="button">View Original</button>
+    </div>
+    <div id="originalTextContainer" class="original-text-box hidden"></div>
     <div id="verdictBanner"></div>
     <p id="summaryText"></p>
     <p id="explanationText"></p>
@@ -55,11 +72,7 @@
   <!-- ── Error banner ────────────────────────────────────── -->
   <div id="errorBanner" class="error-banner hidden"></div>
 
-  <!-- ── Settings row ────────────────────────────────────── -->
-  <footer id="footer">
-    <label class="api-label" for="apiUrl">Backend URL</label>
-    <input id="apiUrl" type="text" value="http://127.0.0.1:8001" spellcheck="false">
-  </footer>
+  <!-- Note: Backend URL has been removed from the user interface -->
 
   <script src="popup.js"></script>
 </body>

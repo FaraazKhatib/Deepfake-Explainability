@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
   "name": "VeriTrust AI — Fact Checker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Check any news article or text for misinformation using VeriTrust AI's fact-checking engine. Paste text or scan the current page.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "sidePanel"
   ],
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",

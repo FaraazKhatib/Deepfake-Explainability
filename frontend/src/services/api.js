@@ -47,6 +47,19 @@ export async function analyzeText(text, onStage) {
   return await res.json();
 }
 
+export async function translateText(text) {
+  const res = await fetch(`${API_BASE}/api/v1/text/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+    throw new Error(error.message || error.detail || 'Translation failed');
+  }
+  return await res.json();
+}
+
 export function formatBytes(bytes) {
   if (!bytes) return '0 B';
   const k = 1024;

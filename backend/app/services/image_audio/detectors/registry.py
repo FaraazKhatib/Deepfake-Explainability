@@ -55,6 +55,9 @@ class Registry:
             if spec.key == 'detectra_openfake':
                 from .onnx_image import ONNXImageClassifier
                 actual_factory = ONNXImageClassifier
+            elif spec.key == 'acoustic_forensics':
+                from .acoustic_forensics import AcousticForensicsDetector
+                actual_factory = lambda s, dev, dt: AcousticForensicsDetector(s)
             
             detector = actual_factory(spec, self.device, self.settings.dtype)
             try:
@@ -95,7 +98,7 @@ class Registry:
         # Selected using the frozen development sample described in MEDIA_EVALUATION.md.
         # Additional models can suppress valid detections; more votes are not
         # automatically better. "all" remains an experimental comparison pool.
-        selected = os.getenv("VT_MODELS", "detectra_openfake,wavlm_itw")
+        selected = os.getenv("VT_MODELS", "detectra_openfake,wavlm_itw,distilhubert_itw,acoustic_forensics")
         keys = None if selected == "all" else {k.strip() for k in selected.split(",")}
         specs = tuple(s for s in ALL_MODELS if keys is None or s.key in keys)
         if keys is not None:

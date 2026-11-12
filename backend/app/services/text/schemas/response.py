@@ -40,6 +40,17 @@ class CheckNewsRequest(BaseModel):
     include_evidence: bool = Field(
         True, description="Include the full list of cited sources per claim."
     )
+    source_language: Optional[str] = Field(
+        None, description="Optional language hint (e.g. 'mr', 'hi') if known from page meta tags."
+    )
+
+
+class TranslateRequest(BaseModel):
+    """Body of POST /translate."""
+    text: str = Field(..., description="Text to translate to English.")
+    source_language: Optional[str] = Field(
+        None, description="Optional language hint (e.g. 'mr', 'hi')."
+    )
 
 
 class ClaimResult(BaseModel):
@@ -92,6 +103,7 @@ class CheckNewsResponse(BaseModel):
         description="Presentation-style assessment. Reported separately and, by "
         "default, unable to affect the verdict.",
     )
+    translation: Optional[Dict[str, Any]] = None
     retrieval: Dict[str, Any] = Field(default_factory=dict)
     meta: Dict[str, Any] = Field(default_factory=dict)
 

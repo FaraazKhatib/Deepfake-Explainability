@@ -26,11 +26,56 @@ from ..textutils import (
     tokenize_words,
 )
 
-# Common news verbs carry little discriminative power in a search query.
+# Common news words, discourse markers and filler that carry little discriminative power in a search query.
 _LOW_VALUE = {
     "said", "says", "reported", "according", "new", "news", "today",
     "yesterday", "week", "year", "people", "time", "way", "thing", "make",
     "made", "get", "got", "also", "after", "before", "more", "most",
+    "whose", "usually", "often", "always", "sometimes", "actually", "just",
+    "include", "includes", "including", "elaborate", "various", "several",
+    "later", "already", "still", "well", "much", "many", "even", "ever",
+    "four", "five", "three", "two", "days", "hours", "months", "years",
+    "another", "other", "others", "since", "while", "though", "although",
+    "however", "meanwhile", "furthermore", "moreover", "overall", "recent",
+    "recently", "current", "currently", "known", "around", "about",
+    "believe", "believes", "believed", "part", "parts", "seem", "seems", "seemed",
+    "state", "states", "stated",
+}
+
+# High-value short 2-3 letter words that carry essential semantic meaning in queries
+_HIGH_VALUE_SHORT_WORDS = {
+    "jet", "war", "car", "bus", "gun", "cop", "cops", "fbi", "cia",
+    "air", "dna", "law", "ban", "oil", "gas", "aid", "spy", "ceo",
+    "flu", "hiv", "who", "un", "eu", "us", "uk", "pope", "fire",
+}
+
+# High-value action verbs that carry the factual core of a news claim.
+# These are prioritized in query construction because they describe WHAT
+# happened (shot, killed, resigned) rather than descriptive filler.
+_HIGH_VALUE_VERBS = {
+    "killed", "shot", "shots", "shooting", "firing", "died", "murdered", "attacked", "attack",
+    "arrested", "detained", "convicted", "sentenced", "charged", "indicted", "probe",
+    "resigned", "fired", "elected", "appointed", "voted", "impeached",
+    "crashed", "explosion", "collapsed", "destroyed", "bombed", "bombing",
+    "imploded", "implosion", "disaster", "broke", "sank", "capsized",
+    "survived", "rescued", "escaped", "injured", "wounded", "assassination", "attempt",
+    "targeted", "gunmen", "shooters",
+    "launched", "invaded", "seized", "raided",
+    "banned", "legalized", "legalised", "approved", "rejected", "signed",
+    "discovered", "invented", "cured", "breakthrough",
+    "earthquake", "hurricane", "flood", "pandemic",
+    "hacked", "leaked", "exposed", "scandal",
+    "bankruptcy", "merger", "acquired", "acquisition",
+    "won", "lost", "defeated", "champion",
+}
+
+
+_GENERIC_REFERENCE_ENTITIES = {
+    "north atlantic ocean", "atlantic ocean", "pacific ocean", "indian ocean", "arctic ocean",
+    "united states", "united kingdom", "north america", "south america", "europe", "asia", "africa",
+    "canada", "mexico", "australia", "newfoundland",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
 }
 
 
@@ -89,15 +134,27 @@ class SearchQuery:
         """
         Query for encyclopedic sources (Wikipedia).
 
-        Reference search wants the SUBJECT, not the claim. Passing the whole
-        claim dilutes it: "World Health Organization United Nations specialised
-        agency" returned "List of specialized agencies of the UN" and "UN Office
-        at Geneva" but never the WHO article itself, so the one page that would
-        have settled the claim was never retrieved. Searching the single most
-        specific entity finds the subject page instead.
+        Reference search wants the primary subject entity, not incidental
+        geographic regions or calendar months.
         """
         if self.entities:
-            return max(self.entities, key=len)
+            specific = [
+                e for e in self.entities
+                if e.lower() not in _GENERIC_REFERENCE_ENTITIES and len(e.split()) <= 4
+            ]
+            if specific:
+                primary = specific[0]
+                extra = [
+                    t for t in self.terms
+                    if t.lower() not in primary.lower() and t.lower() in {
+                        "submersible", "implosion", "disaster", "crash", "satellite", "spacecraft",
+                        "aircraft", "plane", "treaty", "syndrome", "virus", "vaccine", "summit",
+                    }
+                ]
+                if extra:
+                    return f"{primary} {extra[0]}"
+                return primary
+
         return self.as_keyword_string()
 
     def to_dict(self) -> dict:
@@ -127,29 +184,48 @@ def _merge_adjacent_entities(text: str, entities: List[str]) -> List[str]:
     return merged or entities
 
 
+_HEADLINE_VERBS = {
+    "rescues", "rescue", "hold", "holds", "held", "beats", "beat", "cruises", "cruise",
+    "scores", "scored", "scoring", "urges", "urged", "tells", "told", "settles", "settled",
+    "survives", "survive", "clinch", "clinches", "clinched", "stays", "stayed",
+}
+
+
 def build_query(claim_text: str, max_terms: int | None = None) -> SearchQuery:
     """Extract the searchable core of a claim."""
     max_terms = config.MAX_QUERY_TERMS if max_terms is None else max_terms
 
     phrases = quoted_phrases(claim_text)
-    entities = _merge_adjacent_entities(claim_text, proper_nouns(claim_text))
+    raw_nouns = [
+        n for n in proper_nouns(claim_text)
+        if n.lower() not in _HIGH_VALUE_VERBS and n.lower() not in _HEADLINE_VERBS
+    ]
+    entities = _merge_adjacent_entities(claim_text, raw_nouns)
     figures = numbers_and_dates(claim_text)
 
     # Content words: not stopwords, not low-value news filler, length >= 4.
+    # High-value action verbs are separated so they can be prioritized.
     entity_words = {w.lower() for e in entities for w in tokenize_words(e)}
+    action_words: List[str] = []
     content: List[str] = []
     for word in tokenize_words(claim_text):
         lowered = word.lower()
         if lowered in STOPWORDS or lowered in _LOW_VALUE or lowered in entity_words:
             continue
-        if len(lowered) < 4 or lowered.isdigit():
+        if (len(lowered) < 4 and lowered not in _HIGH_VALUE_SHORT_WORDS) or lowered.isdigit():
             continue
-        if lowered not in content:
+        if lowered in _HIGH_VALUE_VERBS:
+            if lowered not in action_words:
+                action_words.append(lowered)
+        elif lowered not in content:
             content.append(lowered)
 
-    # Priority order: entities, then years/figures, then content words.
+    # Priority order: entities, then action verbs, then years/figures,
+    # then remaining content words. Action verbs carry the factual core
+    # (shot, survived, arrested) and must not be pushed out by filler.
     terms: List[str] = []
-    terms.extend(entities[:3])
+    terms.extend(entities[:4])
+    terms.extend(action_words[:2])
     terms.extend([f for f in figures if len(f) == 4 and f.startswith(("19", "20"))][:1])
     terms.extend(content[: max(0, max_terms - len(terms))])
 

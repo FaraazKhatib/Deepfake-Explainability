@@ -37,6 +37,7 @@ _COMMON_CAPITALISED = {
     "when", "while", "after", "before", "however", "meanwhile", "according",
     "in", "on", "at", "for", "to", "of", "by", "with", "from", "as", "his",
     "her", "its", "their", "our", "my", "no", "not", "one", "two",
+    "approximately", "nearly", "reportedly", "allegedly",
 }
 
 # Ordinary words that routinely OPEN a place or organisation name.
