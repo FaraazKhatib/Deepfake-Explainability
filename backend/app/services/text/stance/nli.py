@@ -101,7 +101,32 @@ _EVENT_ROOTS = {
     "disaster", "implod", "submersible", "sub", "sink", "sank", "vessel", "boat", "capsiz", "tragedy", "incident", "drown",
     # Sports / competition outcomes
     "win", "won", "victor", "beat", "defeat", "score", "goal", "rescu", "triumph", "clinch", "prevail", "hold",
+    # Corporate / leadership / political changes
+    "resign", "exit", "step", "ceo", "interim", "chair", "appoint", "successor", "leader", "chief", "replac", "board", "execut", "ousted", "affair", "scandal", "summon", "testif",
 }
+
+
+_POLAR_OPPOSITES = [
+    # Positive outcome vs Negative outcome
+    ({"win", "won", "victor", "victory", "triumph", "beat", "beats", "prevailed"},
+     {"loss", "lost", "defeat", "defeated", "losing"}),
+    # Survival vs Death
+    ({"survive", "survived", "survival", "alive", "safe"},
+     {"die", "died", "dead", "kill", "killed", "fatal", "death", "perish", "perished"}),
+    # Legal outcome
+    ({"guilty", "convicted", "sentenced"},
+     {"innocent", "acquitted", "cleared", "exonerated"}),
+]
+
+
+def _has_polar_opposition(claim_words: set[str], premise_words: set[str]) -> bool:
+    """Return True if claim and premise make opposing assertions (e.g. won vs lost, alive vs dead)."""
+    for pos_set, neg_set in _POLAR_OPPOSITES:
+        if (any(w in claim_words for w in pos_set) and any(w in premise_words for w in neg_set)) or (
+            any(w in claim_words for w in neg_set) and any(w in premise_words for w in pos_set)
+        ):
+            return True
+    return False
 
 
 def _is_false_contradiction(claim: str, premise: str) -> bool:
@@ -110,6 +135,7 @@ def _is_false_contradiction(claim: str, premise: str) -> bool:
 
     If the premise reports on the incident/match without explicit debunk language,
     it is reporting on the real-world event, not refuting that it happened.
+    Authentic opposite outcomes (e.g. won vs lost, died vs survived) are preserved.
     """
     from .debunk import find_debunk_terms
     if find_debunk_terms(premise):
@@ -118,6 +144,10 @@ def _is_false_contradiction(claim: str, premise: str) -> bool:
     from ..textutils import proper_nouns, tokenize_words
     claim_words = {w.lower() for w in tokenize_words(claim)}
     premise_words = {w.lower() for w in tokenize_words(premise)}
+
+    # Never suppress authentic contradictory outcomes (e.g. won vs lost, died vs lived)
+    if _has_polar_opposition(claim_words, premise_words):
+        return False
 
     claim_events = {r for r in _EVENT_ROOTS if any(r in w for w in claim_words)}
     premise_events = {r for r in _EVENT_ROOTS if any(r in w for w in premise_words)}
@@ -358,7 +388,9 @@ class StanceDetector:
                         # contradiction prediction is a known zero-shot artifact.
                         if stance == STANCE_REFUTES and not debunk_fired:
                             if _is_false_contradiction(claim, item.premise):
-                                stance = STANCE_SUPPORTS if entail >= 0.35 else STANCE_UNRELATED
+                                # Demote false contradiction to neutral/unrelated.
+                                # NEVER artificially flip to STANCE_SUPPORTS per mentor guidance.
+                                stance = STANCE_UNRELATED
                                 contra = min(contra, 0.20)
                             elif not _shares_specific_entity(claim, item.premise):
                                 # Cross-topic refutation safeguard: A snippet cannot refute a claim

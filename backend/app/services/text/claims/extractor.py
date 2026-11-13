@@ -45,6 +45,12 @@ _ASSERTIVE_VERBS = {
     "reached", "passed", "failed", "agreed", "refused", "issued", "ordered",
     "is", "was", "are", "were", "has", "have", "had", "will", "became",
     "occurred", "happened", "imploded", "suspended", "broke", "crashed", "survived",
+    "rescues", "rescue", "rescued", "beats", "beat", "defeated", "defeats", "defeat",
+    "scores", "score", "scored", "strikes", "struck", "hold", "holds", "held", "powers", "powered",
+    "seals", "sealed", "downs", "downed", "edges", "edged", "stuns", "stunned", "lifts", "lifted",
+    "fires", "fired", "nets", "netted", "qualifies", "qualified",
+    "summoned", "summon", "testify", "testified", "subpoena", "subpoenaed",
+    "resigns", "resign", "resigning", "steps", "stepping", "stepped", "ousted",
 }
 
 # Markers of opinion rather than fact.
@@ -242,9 +248,10 @@ def clean_headline_text(text: str) -> str:
     return cleaned
 
 
-def split_compound_headline(headline: str) -> List[str]:
+def split_compound_headline(headline: str, context_subject: str = "") -> List[str]:
     """
-    Decompose compound headlines joined by semicolons or conjunctions (' as ', ' while ', ' whilst ', ' amidst ', ' when ').
+    Decompose compound sentences/headlines joined by semicolons or conjunctions
+    (' as ', ' while ', ' whilst ', ' amidst ', ' when ', ' whereas ').
     Also cleans topic slugs, bullet markers, and trailing clickbait appendages.
     """
     cleaned = clean_headline_text(headline)
@@ -258,23 +265,39 @@ def split_compound_headline(headline: str) -> List[str]:
     # 2. Conjunction decomposition (e.g. "Haaland Rescues Man City as Arsenal Hold On in Champions League",
     # "Jet may have broken apart before Florida crash, officials say, as family named among victims",
     # or "The OceanGate Titan submersible disaster occurred on June 18, 2023, when the vessel catastrophically imploded...")
-    pattern = r"^(.*?\b[A-Za-z0-9]+)[,\s]+(?:as|while|whilst|amidst|when)\s+([a-zA-Z0-9].*)$"
+    pattern = r"^(.*?\b[A-Za-z0-9]+)[,\s]+(as|while|whilst|amidst|when|whereas)\s+([a-zA-Z0-9].*)$"
     m = re.match(pattern, cleaned.strip().rstrip("."))
     if not m:
         return [cleaned]
-    c1, c2 = m.group(1).strip(), m.group(2).strip()
+    c1, conj, c2 = m.group(1).strip(), m.group(2).lower(), m.group(3).strip()
     if len(c1.split()) < 3 or len(c2.split()) < 3:
         return [cleaned]
-    prep_match = re.search(r"\s+(in|at|during|for|on)\s+([A-Z][A-Za-z0-9\s]+)$", c2)
-    if prep_match:
+
+    # Prepositional role phrases like "resigned as CEO" or "taken over as interim chief"
+    # are grammatical objects, NOT conjunctions joining two separate events.
+    if conj == "as":
+        role_verb_pattern = r"\b(?:resigned|resign|resigns|resigning|taken\s+over|take\s+over|took\s+over|takes\s+over|taking\s+over|stepped\s+down|step\s+down|stepped\s+in|step\s+in|served|serve|appointed|named|acted|hired|known|identified)\s*$"
+        if re.search(role_verb_pattern, c1, re.I):
+            return [cleaned]
+
+    # Only transfer trailing prepositional tournament/setting phrase (e.g. 'in Champions League', 'in Florida')
+    # if c1 does not already specify its own location/setting.
+    has_own_prep = bool(re.search(r"\b(?:in|at|during|for|on)\s+[A-Z]", c1))
+    prep_match = re.search(r"\s+(in|at|during|for|on)\s+([A-Z][A-Za-z0-9\s]{1,25})$", c2)
+    if prep_match and not has_own_prep:
         prep_phrase = prep_match.group(0)
         prep_words = prep_phrase.lower().split()
-        if not any(w in c1.lower().split() for w in prep_words[1:]):
-            c1_with_prep = f"{c1}{prep_phrase}"
-        else:
-            c1_with_prep = c1
-    else:
-        c1_with_prep = c1
+        if not any(w in {"to", "that", "which", "and", "or", "while"} for w in prep_words) and len(prep_words) <= 4:
+            if not any(w in c1.lower().split() for w in prep_words[1:]):
+                c1 = f"{c1}{prep_phrase}"
+
+    # If c1 starts with a pronoun and we have subject context, resolve it
+    if context_subject:
+        if re.match(r"^his\b", c1, re.I):
+            poss = f"{context_subject}'s" if not context_subject.endswith("s") else f"{context_subject}'"
+            c1 = re.sub(r"^his\b", poss, c1, flags=re.I)
+        elif re.match(r"^he\b", c1, re.I):
+            c1 = re.sub(r"^he\b", context_subject, c1, flags=re.I)
 
     # If c2 refers to the primary subject with a generic descriptor ("the experimental vessel", "the car", etc.),
     # resolve it back to the subject named in c1 so c2 is a standalone factual assertion.
@@ -304,13 +327,9 @@ def split_compound_headline(headline: str) -> List[str]:
             c1,
         )
         if event_match:
-            c2_with_prep = f"{c2} in {event_match.group(1).strip()}"
-        else:
-            c2_with_prep = c2
-    else:
-        c2_with_prep = c2
+            c2 = f"{c2} in {event_match.group(1).strip()}"
 
-    return [c1_with_prep, c2_with_prep]
+    return [c1, c2]
 
 
 def _get_primary_subject(headline: str) -> str:
@@ -382,14 +401,29 @@ def extract_claims(
     if not raw_sentences:
         return []
 
-    # Decompose compound headline if conjoining two distinct clauses
+    headline_raw = raw_sentences[0]
+    headline_subject = _get_primary_subject(headline_raw)
+    from ..textutils import proper_nouns
+    all_nouns = proper_nouns(clean_headline_text(headline_raw))
+    person_subject = next(
+        (n for n in all_nouns if n.lower() not in {"man", "city", "arsenal", "league", "champions", "united"}),
+        headline_subject,
+    )
+
+    # Decompose compound headline and body sentences if conjoining distinct clauses
     sentences: List[str] = []
-    headline_parts = split_compound_headline(raw_sentences[0])
+    headline_parts = split_compound_headline(headline_raw, context_subject=person_subject or headline_subject)
     sentences.extend(headline_parts)
+    headline_len = len(headline_parts)
+
     for s in raw_sentences[1:]:
         cleaned_s = clean_headline_text(s)
-        if cleaned_s:
-            sentences.append(cleaned_s)
+        if not cleaned_s:
+            continue
+        parts = split_compound_headline(cleaned_s, context_subject=person_subject or headline_subject)
+        for p in parts:
+            if len(p.split()) >= 3:
+                sentences.append(p)
 
     # A single short sentence (a headline, a typed assertion) is the claim.
     if treat_as_single_claim or len(sentences) <= 1:
@@ -423,16 +457,22 @@ def extract_claims(
             sentences_examined=len(sentences),
         )
 
-    # If the headline (position 0) is a factual assertion without editorial commentary,
-    # give it priority. If it contains editorial markers (e.g. "dark reminder..."),
-    # do NOT force it to displace concrete event claims from the body.
-    first_claim = next((c for c in scored if c.position == 0), None)
-    is_editorial_headline = first_claim and any("editorial" in r for r in first_claim.reasons)
+    # If the headline had compound clauses (e.g. position 0 and position 1),
+    # prioritize both headline claims as Claim 1 and Claim 2 so multi-topic
+    # headlines are independently checked per fact-checking best practices.
+    headline_claims = [
+        c for c in scored
+        if c.position < headline_len and c.score >= 1.0 and not any("editorial" in r for r in c.reasons)
+    ]
+    body_claims = [c for c in scored if c.position >= headline_len]
+    body_claims.sort(key=lambda c: (-c.score, c.position))
 
-    if first_claim is not None and not is_editorial_headline and first_claim.score >= 1.0:
-        other_claims = [c for c in scored if c.position != 0]
-        other_claims.sort(key=lambda c: (-c.score, c.position))
-        selected = [first_claim] + other_claims[: max(0, max_claims - 1)]
+    if headline_claims:
+        # Include all valid headline claims (up to max_claims - 1 if body claims exist)
+        needed_from_hl = min(len(headline_claims), max(1, max_claims - (1 if body_claims else 0)))
+        selected = headline_claims[:needed_from_hl]
+        remaining_slots = max(0, max_claims - len(selected))
+        selected.extend(body_claims[:remaining_slots])
     else:
         # Rank all claims strictly by checkability score
         scored.sort(key=lambda c: (-c.score, c.position))
@@ -501,12 +541,20 @@ def extract_claims(
                 claim.text = subject + claim.text[len(tokens[-1]):]
                 claim.reasons.append(f"expanded surname to '{subject}'")
             elif lacks_subject and subject_lowered not in claim_lowered and (not surname or surname not in claim_lowered):
-                # Neither full subject nor surname is in the claim:
-                # Prepend the subject to provide context for downstream query & NLI
-                claim.text = f"{subject}: {claim.text}"
-                claim.reasons.append(
-                    f"subject '{subject}' injected from headline (context resolution)"
-                )
+                # Resolve leading pronouns directly with the subject name rather than prepending "Subject: ..."
+                if re.match(r"^his\b", claim.text, re.I):
+                    poss = f"{subject}'s" if not subject.endswith("s") else f"{subject}'"
+                    claim.text = re.sub(r"^his\b", poss, claim.text, flags=re.I)
+                    claim.reasons.append(f"resolved 'his' to '{poss}'")
+                elif re.match(r"^he\b", claim.text, re.I):
+                    claim.text = re.sub(r"^he\b", subject, claim.text, flags=re.I)
+                    claim.reasons.append(f"resolved 'he' to '{subject}'")
+                else:
+                    # Prepend the subject to provide context for downstream query & NLI
+                    claim.text = f"{subject}: {claim.text}"
+                    claim.reasons.append(
+                        f"subject '{subject}' injected from headline (context resolution)"
+                    )
 
     return selected
 

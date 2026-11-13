@@ -44,7 +44,9 @@ class Evidence:
         """The text handed to the NLI model as the premise."""
         parts = [self.title.strip()]
         if self.snippet and self.snippet.strip() != self.title.strip():
-            parts.append(self.snippet.strip())
+            snip_clean = self.snippet.strip()
+            if len(snip_clean.split()) > 2 and snip_clean.lower() not in {self.outlet.lower(), self.domain.lower()}:
+                parts.append(snip_clean)
         joined = ". ".join(p.rstrip(".") for p in parts if p)
         return re.sub(r"\s+", " ", joined).strip()
 

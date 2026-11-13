@@ -67,6 +67,11 @@ _HIGH_VALUE_VERBS = {
     "hacked", "leaked", "exposed", "scandal",
     "bankruptcy", "merger", "acquired", "acquisition",
     "won", "lost", "defeated", "champion",
+    "rescues", "rescue", "beats", "beat", "scores", "scored", "scoring", "strikes", "struck",
+    "hold", "holds", "held", "powers", "powered", "seals", "sealed", "downs", "downed", "edges", "edged",
+    "stuns", "stunned", "lifts", "lifted", "fires", "fired", "nets", "netted",
+    "summoned", "summon", "testify", "testified", "subpoena", "subpoenaed",
+    "resigns", "resign", "resigning", "steps", "stepping", "stepped", "ousted",
 }
 
 
