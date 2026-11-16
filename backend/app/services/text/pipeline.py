@@ -134,7 +134,12 @@ class FactCheckPipeline:
 
         for claim in claims:
             query = build_query(claim.text)
-            report = gather_evidence(query)
+            report = gather_evidence(
+                query,
+                language=translation_info.get("source_language")
+                if translation_info.get("was_translated")
+                else None,
+            )
 
             # Merge retrieval diagnostics across claims.
             for name, count in report.per_source_counts.items():

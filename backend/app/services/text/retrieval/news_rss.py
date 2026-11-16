@@ -54,18 +54,49 @@ def _split_google_title(title: str) -> tuple:
     return title, ""
 
 
-def search(query: str, max_items: int | None = None) -> List[Evidence]:
-    """Keyword-search live news via Google News RSS."""
+# Mapping of ISO language codes to Google News RSS parameters
+LANGUAGE_CONFIGS = {
+    "mr": {"hl": "mr", "gl": "IN", "ceid": "IN:mr"},         # Marathi
+    "hi": {"hl": "hi", "gl": "IN", "ceid": "IN:hi"},         # Hindi
+    "bn": {"hl": "bn", "gl": "IN", "ceid": "IN:bn"},         # Bengali
+    "ta": {"hl": "ta", "gl": "IN", "ceid": "IN:ta"},         # Tamil
+    "te": {"hl": "te", "gl": "IN", "ceid": "IN:te"},         # Telugu
+    "gu": {"hl": "gu", "gl": "IN", "ceid": "IN:gu"},         # Gujarati
+    "ml": {"hl": "ml", "gl": "IN", "ceid": "IN:ml"},         # Malayalam
+    "pa": {"hl": "pa", "gl": "IN", "ceid": "IN:pa"},         # Punjabi
+    "ur": {"hl": "ur", "gl": "IN", "ceid": "IN:ur"},         # Urdu
+    "es": {"hl": "es", "gl": "ES", "ceid": "ES:es"},         # Spanish
+    "fr": {"hl": "fr", "gl": "FR", "ceid": "FR:fr"},         # French
+    "de": {"hl": "de", "gl": "DE", "ceid": "DE:de"},         # German
+}
+
+
+def search(
+    query: str, max_items: int | None = None, language: str | None = None
+) -> List[Evidence]:
+    """Keyword-search live news via Google News RSS, respecting language locale when provided."""
     if not query.strip():
         return []
 
     max_items = config.GOOGLE_NEWS_MAX_ITEMS if max_items is None else max_items
-    params = {
-        "q": query,
-        "hl": config.GOOGLE_NEWS_LANG,
-        "gl": config.GOOGLE_NEWS_COUNTRY,
-        "ceid": f"{config.GOOGLE_NEWS_COUNTRY}:{config.GOOGLE_NEWS_LANG.split('-')[0]}",
-    }
+
+    lang_code = (language or "").lower().split("-")[0].split("_")[0]
+    loc_params = LANGUAGE_CONFIGS.get(lang_code)
+
+    if loc_params:
+        params = {
+            "q": query,
+            "hl": loc_params["hl"],
+            "gl": loc_params["gl"],
+            "ceid": loc_params["ceid"],
+        }
+    else:
+        params = {
+            "q": query,
+            "hl": config.GOOGLE_NEWS_LANG,
+            "gl": config.GOOGLE_NEWS_COUNTRY,
+            "ceid": f"{config.GOOGLE_NEWS_COUNTRY}:{config.GOOGLE_NEWS_LANG.split('-')[0]}",
+        }
 
     body = http_get(config.GOOGLE_NEWS_ENDPOINT, params=params)
 

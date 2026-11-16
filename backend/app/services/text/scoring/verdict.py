@@ -221,6 +221,10 @@ def decide(
     notes: List[str] = []
     minimum = config.MIN_INDEPENDENT_SOURCES
 
+    # Both conditions must be satisfied together — weight threshold AND minimum source
+    # count. Previously the two were checked independently, which allowed a single
+    # high-credibility source to clear the weight floor while len(refuting) stayed at 1,
+    # producing a false "Contradicted" on breaking news with only one indexed article.
     support_normal = (
         support_weight >= config.SUPPORT_THRESHOLD and len(supporting) >= minimum
     )
@@ -228,9 +232,20 @@ def decide(
         refute_weight >= config.REFUTE_THRESHOLD and len(refuting) >= minimum
     )
 
-    # Narrow exception for non-syndicated authoritative sources.
+    # Narrow exception for non-syndicated authoritative sources (Wikipedia, official
+    # bodies, IFCN fact-checkers). Wire services and established newsrooms are
+    # deliberately excluded: a single BBC or Reuters article is exactly the
+    # syndication case MIN_INDEPENDENT_SOURCES guards against.
     support_authority = None if support_normal else single_authoritative_source(supporting)
-    refute_authority = None if refute_normal else single_authoritative_source(refuting)
+    # For refutation only: an authoritative single source (e.g. a fact-checker
+    # publishing an explicit rating) may qualify, but only if there is no strong
+    # evidence on the supporting side — a lone refuter should not override a
+    # genuinely contested story.
+    refute_authority = (
+        None
+        if refute_normal or support_weight > 0
+        else single_authoritative_source(refuting)
+    )
 
     support_qualifies = support_normal or support_authority is not None
     refute_qualifies = refute_normal or refute_authority is not None
@@ -257,15 +272,18 @@ def decide(
         verdict = VERDICT_UNVERIFIED
         if not supporting and not refuting:
             notes.append(
-                "No sources found for this claim. It might be too new, local, "
-                "or phrased differently."
+                "No sources found for this claim. It may be too recent for news "
+                "search to have indexed it yet, or it may be local/niche news. "
+                "This does not mean the claim is false."
             )
         else:
             found = len(supporting) + len(refuting)
             if found < minimum:
                 notes.append(
-                    f"Not enough sources found ({found}) to make a verdict. "
-                    f"We need at least {minimum}."
+                    f"Not enough independent sources found ({found}) to reach a verdict. "
+                    f"We need at least {minimum}. "
+                    "This often means the story is very recent and hasn't been "
+                    "indexed by news search yet — not that it is false."
                 )
             else:
                 notes.append(
@@ -338,11 +356,25 @@ def combine_claim_verdicts(verdicts: List[ClaimVerdict]) -> dict:
     unverified = [v for v in verdicts if v.verdict == VERDICT_UNVERIFIED]
 
     if refuted:
-        overall = VERDICT_REFUTED
-        rationale = (
-            f"{len(refuted)} of {len(verdicts)} checked claim(s) were "
-            "contradicted by independent sources."
-        )
+        # Only mark the whole document as "Contradicted" when refuted claims are
+        # not outnumbered by unverified ones. If the story is too fresh to have
+        # indexed corroboration, a lone refuted claim most likely reflects an NLI
+        # misfire on sparse evidence rather than genuine contradiction. Downgrade
+        # to "Disputed" so the user is not shown a false negative on breaking news.
+        if len(refuted) >= len(unverified):
+            overall = VERDICT_REFUTED
+            rationale = (
+                f"{len(refuted)} of {len(verdicts)} checked claim(s) were "
+                "contradicted by independent sources."
+            )
+        else:
+            overall = VERDICT_DISPUTED
+            rationale = (
+                f"{len(refuted)} claim(s) flagged as contradicted, but "
+                f"{len(unverified)} claim(s) could not be verified — "
+                "this may be breaking news not yet indexed by news search. "
+                "Treat the contradicted finding with caution."
+            )
     elif disputed:
         overall = VERDICT_DISPUTED
         rationale = f"{len(disputed)} of {len(verdicts)} checked claim(s) are disputed."

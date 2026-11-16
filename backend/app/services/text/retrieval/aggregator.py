@@ -71,7 +71,11 @@ def deduplicate(items: List[Evidence], max_per_domain: int) -> List[Evidence]:
     return kept
 
 
-def gather_evidence(query: SearchQuery, max_items: int | None = None) -> RetrievalReport:
+def gather_evidence(
+    query: SearchQuery,
+    max_items: int | None = None,
+    language: str | None = None,
+) -> RetrievalReport:
     """
     Query all enabled sources in parallel and return a merged, deduplicated pool.
 
@@ -91,7 +95,11 @@ def gather_evidence(query: SearchQuery, max_items: int | None = None) -> Retriev
         tasks.append((gdelt.SOURCE_NAME, lambda: gdelt.search(gdelt_query), gdelt_query))
     if config.ENABLE_GOOGLE_NEWS:
         tasks.append(
-            (news_rss.SOURCE_NAME, lambda: news_rss.search(keyword_query), keyword_query)
+            (
+                news_rss.SOURCE_NAME,
+                lambda: news_rss.search(keyword_query, language=language),
+                keyword_query,
+            )
         )
     if config.ENABLE_WIKIPEDIA:
         tasks.append(
@@ -137,14 +145,33 @@ def gather_evidence(query: SearchQuery, max_items: int | None = None) -> Retriev
                 interleaved.append(items[position])
         position += 1
 
-    # Drop non-English evidence before it can be mis-scored by an
-    # English-trained NLI model (see retrieval/relevance.py).
-    kept, dropped = filter_by_language(interleaved)
-    if dropped:
-        report.notices.setdefault(
-            "language_filter",
-            f"{len(dropped)} non-English item(s) were excluded; the NLI model "
-            "is English-trained and would score them unreliably.",
+    # Check language of retrieved evidence:
+    # Instead of discarding non-English articles outright (which kills regional news),
+    # translate any high-value non-English snippet into English so the English NLI model can evaluate it.
+    from ..translation import translate_to_english
+    from .relevance import looks_english
+
+    kept: List[Evidence] = []
+    translated_count = 0
+
+    for item in interleaved:
+        if looks_english(item.premise):
+            kept.append(item)
+        else:
+            # Non-English evidence retrieved (e.g. from local Marathi/Hindi Google News).
+            # Translate premise and title into English to preserve evidence coverage.
+            try:
+                trans = translate_to_english(item.premise, source_hint=language or "")
+                if trans.get("was_translated") and trans.get("text"):
+                    item.snippet = trans["text"]
+                    translated_count += 1
+                    kept.append(item)
+            except Exception as exc:
+                logger.debug("Evidence translation skipped for %s: %s", item.url, exc)
+
+    if translated_count > 0:
+        report.notices["regional_translation"] = (
+            f"Translated {translated_count} regional language news article(s) to English for NLI verification."
         )
 
     report.evidence = deduplicate(kept, config.MAX_PER_DOMAIN)[:max_items]
