@@ -91,6 +91,7 @@ class FactCheckPipeline:
         treat_as_single_claim: bool = False,
         include_evidence: bool = True,
         source_language: Optional[str] = None,
+        strict_mode: bool = False,
     ) -> dict:
         """
         Run a full fact check.
@@ -154,7 +155,7 @@ class FactCheckPipeline:
             merged_evidence.extend(report.evidence)
 
             stances = self.stance_detector.classify(claim.text, report.evidence)
-            verdict = decide(claim.text, stances, self.credibility)
+            verdict = decide(claim.text, stances, self.credibility, strict_mode=strict_mode)
             verdicts.append(verdict)
 
             # A claim phrased as reported speech is a statement ABOUT an
@@ -179,7 +180,7 @@ class FactCheckPipeline:
             claim_payloads.append(payload)
 
         merged_report.evidence = merged_evidence
-        overall = combine_claim_verdicts(verdicts)
+        overall = combine_claim_verdicts(verdicts, strict_mode=strict_mode)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
 
         return {
@@ -204,6 +205,7 @@ class FactCheckPipeline:
                 "stance_model": self.stance_detector.model_name,
                 "device": self.stance_detector.device,
                 "style_affects_verdict": config.STYLE_AFFECTS_VERDICT,
+                "strict_mode": strict_mode,
                 "processing_time_ms": round(elapsed_ms, 1),
                 "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 **({"notes": [f"Automatically translated from {translation_info.get('source_language_name', 'detected language')} to English for fact-checking."]} if translation_info.get("was_translated") else {}),

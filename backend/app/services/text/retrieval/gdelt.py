@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import List
 
 from .. import config
@@ -30,6 +31,7 @@ SOURCE_NAME = "GDELT"
 
 # GDELT's seendate format, e.g. 20250823T124500Z
 _DATE_FORMATS = ["%Y%m%dT%H%M%SZ", "%Y%m%d%H%M%S", "%Y-%m-%dT%H:%M:%SZ"]
+_circuit_breaker_until: float = 0.0
 
 
 def search(query: str, max_records: int | None = None, timespan: str | None = None) -> List[Evidence]:
@@ -38,8 +40,12 @@ def search(query: str, max_records: int | None = None, timespan: str | None = No
 
     Returns an empty list on any failure; the caller records the error.
     """
+    global _circuit_breaker_until
     if not query.strip():
         return []
+
+    if time.time() < _circuit_breaker_until:
+        raise RuntimeError("GDELT temporarily paused due to upstream rate limit (circuit breaker active)")
 
     max_records = config.GDELT_MAX_RECORDS if max_records is None else max_records
     timespan = config.GDELT_TIMESPAN if timespan is None else timespan
@@ -53,7 +59,13 @@ def search(query: str, max_records: int | None = None, timespan: str | None = No
         "sort": "hybridrel",   # relevance blended with recency
     }
 
-    body = http_get(config.GDELT_ENDPOINT, params=params)
+    try:
+        body = http_get(config.GDELT_ENDPOINT, params=params, timeout=4.0)
+    except Exception as exc:
+        if "429" in str(exc) or "rate limit" in str(exc).lower():
+            _circuit_breaker_until = time.time() + 180.0
+            logger.warning("GDELT rate limited; tripping circuit breaker for 3 minutes.")
+        raise
 
     # GDELT occasionally answers with a plain-text error page and HTTP 200.
     stripped = body.lstrip()

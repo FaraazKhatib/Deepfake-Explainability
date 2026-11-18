@@ -72,6 +72,7 @@ _HIGH_VALUE_VERBS = {
     "stuns", "stunned", "lifts", "lifted", "fires", "fired", "nets", "netted",
     "summoned", "summon", "testify", "testified", "subpoena", "subpoenaed",
     "resigns", "resign", "resigning", "steps", "stepping", "stepped", "ousted",
+    "named", "cast", "chosen", "picked", "selected", "tapped", "starred", "replaces", "replaced", "debuts",
 }
 
 

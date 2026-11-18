@@ -145,19 +145,25 @@ def gather_evidence(
                 interleaved.append(items[position])
         position += 1
 
+    # Deduplicate and cap before translation so we never waste time translating
+    # duplicate domain articles or items beyond the evidence budget.
+    deduped = deduplicate(interleaved, config.MAX_PER_DOMAIN)[:max_items]
+
     # Check language of retrieved evidence:
     # Instead of discarding non-English articles outright (which kills regional news),
-    # translate any high-value non-English snippet into English so the English NLI model can evaluate it.
+    # translate up to MAX_TRANSLATIONS high-value non-English snippets into English
+    # so the English NLI model can evaluate them without latency explosion.
     from ..translation import translate_to_english
     from .relevance import looks_english
 
     kept: List[Evidence] = []
     translated_count = 0
+    MAX_TRANSLATIONS = 4
 
-    for item in interleaved:
+    for item in deduped:
         if looks_english(item.premise):
             kept.append(item)
-        else:
+        elif translated_count < MAX_TRANSLATIONS:
             # Non-English evidence retrieved (e.g. from local Marathi/Hindi Google News).
             # Translate premise and title into English to preserve evidence coverage.
             try:
@@ -174,7 +180,7 @@ def gather_evidence(
             f"Translated {translated_count} regional language news article(s) to English for NLI verification."
         )
 
-    report.evidence = deduplicate(kept, config.MAX_PER_DOMAIN)[:max_items]
+    report.evidence = kept
     logger.info(
         "Retrieved %d evidence items (%s)",
         len(report.evidence),

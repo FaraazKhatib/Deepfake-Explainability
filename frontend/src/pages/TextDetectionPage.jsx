@@ -40,6 +40,7 @@ export default function TextDetectionPage() {
   const [error, setError] = useState(null);
   const [translating, setTranslating] = useState(false);
   const [targetLang, setTargetLang] = useState('en');
+  const [strictMode, setStrictMode] = useState(false);
 
   const handleTranslateInput = async () => {
     if (!text.trim()) return;
@@ -101,7 +102,10 @@ export default function TextDetectionPage() {
     setStatus('analyzing');
     setError(null);
     try {
-      const res = await analyzeText(text);
+      const res = await analyzeText(text, null, {
+        strict_mode: strictMode,
+        single_claim: !strictMode,
+      });
       setResult(res);
       setOriginalResult(JSON.parse(JSON.stringify(res)));
       setStatus('done');
@@ -141,12 +145,33 @@ export default function TextDetectionPage() {
         </div>
 
         <textarea
-          className="w-full h-40 p-4 bg-gray-50 border border-gray-200 rounded-xl mb-4 focus:ring-2 focus:ring-black focus:outline-none"
+          className="w-full h-40 p-4 bg-gray-50 border border-gray-200 rounded-xl mb-3 focus:ring-2 focus:ring-black focus:outline-none"
           placeholder="Paste text, news headline, or article in any language (English, Spanish, Hindi, French, etc.)..."
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={status === 'analyzing'}
         />
+
+        <div className="flex flex-wrap items-center justify-between gap-3 py-2.5 px-3 bg-gray-50 rounded-xl border border-gray-100 mb-4">
+          <label className="flex items-center gap-3 cursor-pointer select-none" title="Strict Mode requires Tier-1 newsroom consensus (BBC, Reuters, AP) and audits secondary claims.">
+            <input
+              type="checkbox"
+              checked={strictMode}
+              onChange={(e) => setStrictMode(e.target.checked)}
+              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300"
+            />
+            <div>
+              <span className="text-xs font-semibold text-gray-800">
+                {strictMode ? 'Strict Tier-1 Mode' : 'Standard Fast Mode'}
+              </span>
+              <p className="text-[11px] text-gray-500">
+                {strictMode
+                  ? 'Demands Tier-1 newsroom consensus (BBC, Reuters, AP) with deep claim audit.'
+                  : 'Fast live verification against reputable news (~8-12s).'}
+              </p>
+            </div>
+          </label>
+        </div>
 
         <div className="flex justify-between items-center">
           <span className="text-xs text-gray-500">

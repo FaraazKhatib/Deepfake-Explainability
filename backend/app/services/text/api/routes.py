@@ -109,6 +109,7 @@ def check_news(
         treat_as_single_claim=payload.single_claim,
         include_evidence=payload.include_evidence,
         source_language=payload.source_language,
+        strict_mode=payload.strict_mode,
     )
 
 

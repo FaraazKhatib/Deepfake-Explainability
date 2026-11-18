@@ -43,6 +43,9 @@ class CheckNewsRequest(BaseModel):
     source_language: Optional[str] = Field(
         None, description="Optional language hint (e.g. 'mr', 'hi') if known from page meta tags."
     )
+    strict_mode: bool = Field(
+        False, description="Strict verification mode: requires rated newsrooms and higher confidence thresholds."
+    )
 
 
 class TranslateRequest(BaseModel):

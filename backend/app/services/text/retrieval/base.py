@@ -164,6 +164,7 @@ def http_get(
     params: Optional[dict] = None,
     use_cache: bool = True,
     user_agent: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> str:
     """
     GET a URL and return the body as text.
@@ -196,11 +197,12 @@ def http_get(
         "Accept": "*/*",
     }
 
+    req_timeout = timeout if timeout is not None else config.HTTP_TIMEOUT
     last_error: Optional[str] = None
     for attempt in range(config.HTTP_MAX_RETRIES + 1):
         try:
             request = Request(full_url, headers=headers)
-            with urlopen(request, timeout=config.HTTP_TIMEOUT) as response:
+            with urlopen(request, timeout=req_timeout) as response:
                 charset = response.headers.get_content_charset() or "utf-8"
                 body = response.read().decode(charset, errors="replace")
             if use_cache:

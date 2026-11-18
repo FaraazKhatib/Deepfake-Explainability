@@ -59,7 +59,7 @@ NLI_FALLBACK_MODELS: List[str] = [
     if m.strip()
 ]
 NLI_MAX_LENGTH = _env_int("FC_NLI_MAX_LENGTH", 512)
-NLI_BATCH_SIZE = _env_int("FC_NLI_BATCH_SIZE", 8)
+NLI_BATCH_SIZE = _env_int("FC_NLI_BATCH_SIZE", 16)
 
 # Minimum probability before a snippet counts as taking a side at all.
 STANCE_MIN_CONFIDENCE = _env_float("FC_STANCE_MIN_CONFIDENCE", 0.55)
@@ -133,12 +133,12 @@ WIKIPEDIA_ENDPOINT = _env_str(
 )
 WIKIPEDIA_MAX_ARTICLES = _env_int("FC_WIKIPEDIA_MAX_ARTICLES", 3)
 
-HTTP_TIMEOUT = _env_float("FC_HTTP_TIMEOUT", 20.0)
+HTTP_TIMEOUT = _env_float("FC_HTTP_TIMEOUT", 10.0)
 HTTP_USER_AGENT = _env_str(
     "FC_USER_AGENT",
     "Mozilla/5.0 (compatible; fact-checker-fyp/1.0; academic research prototype)",
 )
-HTTP_MAX_RETRIES = _env_int("FC_HTTP_MAX_RETRIES", 2)
+HTTP_MAX_RETRIES = _env_int("FC_HTTP_MAX_RETRIES", 1)
 
 # Wikimedia's User-Agent policy rejects generic browser-like strings: sending
 # "Mozilla/5.0 ..." to the Wikipedia API returns 403 Forbidden. It wants a
@@ -179,7 +179,7 @@ DEBUNK_BASE_CONFIDENCE = _env_float("FC_DEBUNK_BASE_CONFIDENCE", 0.60)
 DEBUNK_MAX_CONFIDENCE = _env_float("FC_DEBUNK_MAX_CONFIDENCE", 0.85)
 
 # Total evidence snippets carried into the (comparatively expensive) NLI stage.
-MAX_EVIDENCE_ITEMS = _env_int("FC_MAX_EVIDENCE", 30)
+MAX_EVIDENCE_ITEMS = _env_int("FC_MAX_EVIDENCE", 12)
 # Cap per domain BEFORE scoring, so one prolific outlet cannot flood the pool.
 MAX_PER_DOMAIN = _env_int("FC_MAX_PER_DOMAIN", 3)
 

@@ -33,12 +33,19 @@ export async function analyzeAudio(file, onStage) {
   return await uploadFile('/api/v1/image_audio/analyze?modality=audio', file, onStage);
 }
 
-export async function analyzeText(text, onStage) {
+export async function analyzeText(text, onStage, options = {}) {
   onStage?.('analyzing');
+  const { single_claim = false, strict_mode = false } = options;
   const res = await fetch(`${API_BASE}/api/v1/text/check-news`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, max_claims: 3, single_claim: false, include_evidence: true })
+    body: JSON.stringify({
+      text,
+      max_claims: single_claim ? 1 : 3,
+      single_claim: Boolean(single_claim),
+      strict_mode: Boolean(strict_mode),
+      include_evidence: true,
+    })
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));

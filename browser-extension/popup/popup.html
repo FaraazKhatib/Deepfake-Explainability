@@ -16,6 +16,13 @@
       <span>VeriTrust AI</span>
     </div>
     <div class="header-actions">
+      <button id="sidePanelBtn" class="btn-sidepanel" title="Dock in Side Panel so it stays open even when clicking website popups">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="15" y1="3" x2="15" y2="21"></line>
+        </svg>
+        <span>Side Panel</span>
+      </button>
       <button id="resetBtn" class="btn-reset" title="Start a fresh check" style="display:none;">New Check</button>
       <span class="badge" id="statusBadge">Ready</span>
     </div>
@@ -26,6 +33,21 @@
     <button class="tab active" data-tab="paste">Paste Text</button>
     <button class="tab" data-tab="scan">Scan Page</button>
   </nav>
+
+  <!-- ── Single Intuitive Verification Mode Switch ──────────────── -->
+  <div class="mode-bar">
+    <div class="mode-text-group">
+      <div class="mode-header">
+        <span class="mode-title">Mode:</span>
+        <span id="modeName" class="mode-name">Standard (Fast Live News)</span>
+      </div>
+      <p id="modeDesc" class="mode-desc">Verifies primary story against live indexed news in ~8-12s.</p>
+    </div>
+    <label class="switch" title="Toggle between Standard Fast Mode and Strict Tier-1 Audit">
+      <input type="checkbox" id="strictModeToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
 
   <!-- ── Paste tab ───────────────────────────────────────── -->
   <section id="tab-paste" class="tab-content active">
@@ -49,11 +71,35 @@
       <span class="btn-label">Scan This Page</span>
       <span class="spinner hidden"></span>
     </button>
+    <div id="bgScanProgressBox" class="bg-scan-box hidden">
+      <div class="bg-scan-header">
+        <span class="scan-radar-dot"></span>
+        <span id="bgScanStatusText">Scanning in background… (~1-2m)</span>
+      </div>
+      <p id="bgScanTargetText" class="bg-scan-target"></p>
+      <div class="bg-scan-actions">
+        <button id="bgScanGoToTabBtn" class="btn-xs" type="button">Go to Scanned Tab</button>
+        <button id="bgScanCancelBtn" class="btn-xs btn-outline-danger" type="button">Cancel & Scan This Tab</button>
+      </div>
+    </div>
     <div id="extractedPreview" class="extracted-preview hidden"></div>
   </section>
 
   <!-- ── Results area (shared) ───────────────────────────── -->
   <section id="results" class="hidden">
+    <div id="scannedSourceBanner" class="source-banner hidden">
+      <div class="source-info">
+        <span class="source-icon">📰</span>
+        <div class="source-text-wrap">
+          <span class="source-label" id="sourceTabIndicator">Scanned:</span>
+          <a id="sourcePageLink" class="source-link" href="#" target="_blank" title="Open source page">Source Page</a>
+        </div>
+      </div>
+      <div class="source-actions">
+        <button id="goToScannedTabBtn" class="btn-xs hidden" type="button" title="Switch back to the tab that was scanned">Go to Tab</button>
+        <button id="scanCurrentTabBtn" class="btn-xs btn-outline hidden" type="button" title="Scan the currently active tab instead">Scan Current Tab</button>
+      </div>
+    </div>
     <div id="translationBanner" class="translation-banner hidden">
       <div class="translation-info">
         <span class="globe-icon">🌐</span>

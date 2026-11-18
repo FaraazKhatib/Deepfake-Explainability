@@ -103,6 +103,10 @@ _EVENT_ROOTS = {
     "win", "won", "victor", "beat", "defeat", "score", "goal", "rescu", "triumph", "clinch", "prevail", "hold",
     # Corporate / leadership / political changes
     "resign", "exit", "step", "ceo", "interim", "chair", "appoint", "successor", "leader", "chief", "replac", "board", "execut", "ousted", "affair", "scandal", "summon", "testif",
+    # Diplomatic / geopolitical / peace talks
+    "talk", "meet", "brief", "peace", "negotiat", "summit", "visit", "trip", "discuss", "envoy", "deal", "treaty", "war", "ceasefire", "pact",
+    # Entertainment / film / casting roles
+    "name", "cast", "role", "star", "play", "actor", "actress", "film", "movie", "franchise", "debut", "reboot", "sequel", "screen", "bond",
 }
 
 

@@ -199,6 +199,7 @@ def decide(
     claim: str,
     stances: List[StanceResult],
     credibility: CredibilityIndex,
+    strict_mode: bool = False,
 ) -> ClaimVerdict:
     """Aggregate stances into a verdict for one claim."""
     domain_stances = collapse_to_domains(stances, credibility)
@@ -221,16 +222,26 @@ def decide(
     notes: List[str] = []
     minimum = config.MIN_INDEPENDENT_SOURCES
 
-    # Both conditions must be satisfied together — weight threshold AND minimum source
-    # count. Previously the two were checked independently, which allowed a single
-    # high-credibility source to clear the weight floor while len(refuting) stayed at 1,
-    # producing a false "Contradicted" on breaking news with only one indexed article.
-    support_normal = (
-        support_weight >= config.SUPPORT_THRESHOLD and len(supporting) >= minimum
-    )
-    refute_normal = (
-        refute_weight >= config.REFUTE_THRESHOLD and len(refuting) >= minimum
-    )
+    if strict_mode:
+        support_thresh = config.SUPPORT_THRESHOLD + 0.15
+        refute_thresh = config.REFUTE_THRESHOLD + 0.15
+        rated_supporting = [d for d in supporting if d.rating.is_rated and d.rating.weight >= 0.70]
+        has_rated_support = len(rated_supporting) >= 1
+        support_normal = (
+            support_weight >= support_thresh and len(supporting) >= minimum and has_rated_support
+        )
+        refute_normal = (
+            refute_weight >= refute_thresh and len(refuting) >= minimum
+        )
+        notes.append("Strict Mode: High-confidence threshold and rated Tier-1 newsroom corroboration enforced.")
+    else:
+        # Both conditions must be satisfied together — weight threshold AND minimum source count.
+        support_normal = (
+            support_weight >= config.SUPPORT_THRESHOLD and len(supporting) >= minimum
+        )
+        refute_normal = (
+            refute_weight >= config.REFUTE_THRESHOLD and len(refuting) >= minimum
+        )
 
     # Narrow exception for non-syndicated authoritative sources (Wikipedia, official
     # bodies, IFCN fact-checkers). Wire services and established newsrooms are
@@ -335,7 +346,7 @@ def decide(
     )
 
 
-def combine_claim_verdicts(verdicts: List[ClaimVerdict]) -> dict:
+def combine_claim_verdicts(verdicts: List[ClaimVerdict], strict_mode: bool = False) -> dict:
     """
     Roll several claim verdicts into one document-level summary.
 
@@ -382,13 +393,20 @@ def combine_claim_verdicts(verdicts: List[ClaimVerdict]) -> dict:
         overall = VERDICT_SUPPORTED
         rationale = "Every checked claim was confirmed by independent sources."
     elif supported:
-        # When independent sources confirm one or more core claims and none are
-        # contradicted or disputed, the story's factual backbone is supported.
-        overall = VERDICT_SUPPORTED
-        rationale = (
-            f"Core reporting is confirmed by independent sources "
-            f"({len(supported)} claim(s) confirmed, {len(unverified)} secondary detail(s) unverified)."
-        )
+        if strict_mode and unverified:
+            overall = VERDICT_UNVERIFIED
+            rationale = (
+                f"Strict Mode: {len(supported)} claim(s) confirmed, but "
+                f"{len(unverified)} detail(s) remain unverified by Tier-1 sources."
+            )
+        else:
+            # When independent sources confirm one or more core claims and none are
+            # contradicted or disputed, the story's factual backbone is supported.
+            overall = VERDICT_SUPPORTED
+            rationale = (
+                f"Core reporting is confirmed by independent sources "
+                f"({len(supported)} claim(s) confirmed, {len(unverified)} secondary detail(s) unverified)."
+            )
     else:
         overall = VERDICT_UNVERIFIED
         rationale = "None of the checked claims could be confirmed or refuted by current news sources."

@@ -51,6 +51,9 @@ _ASSERTIVE_VERBS = {
     "fires", "fired", "nets", "netted", "qualifies", "qualified",
     "summoned", "summon", "testify", "testified", "subpoena", "subpoenaed",
     "resigns", "resign", "resigning", "steps", "stepping", "stepped", "ousted",
+    "named", "name", "cast", "casting", "picked", "chosen", "selected", "tapped",
+    "stars", "starred", "starring", "plays", "played", "playing", "joins", "joined",
+    "replaces", "replaced", "replacing", "debuts", "debuted",
 }
 
 # Markers of opinion rather than fact.
@@ -192,12 +195,22 @@ def score_sentence(sentence: str, position: int = -1, subject: str = "") -> tupl
         reasons.append(f"describes concrete event(s): {', '.join(list(distinct)[:3])}")
 
     # Penalize sentences lacking any assertive or action verb (e.g. metadata list labels or prepositional fragments)
+    # Strategy A: position == 0 with named entities is a headline; headlines use telegraphic style
+    # or passive voice with omitted auxiliary verbs and must not be penalized as fragments.
     if not (verbs or action_hits):
-        score -= 0.8
-        reasons.append("lacks an assertive or action verb (fragment)")
+        if position == 0 and entities:
+            pass  # Do not penalize headlines containing named entities
+        else:
+            score -= 0.8
+            reasons.append("lacks an assertive or action verb (fragment)")
 
-    # Inverted pyramid lede boost: sentences near top of article carry the core news event
-    if 1 <= position <= 4:
+    # Inverted pyramid priority boost:
+    # Headlines (position == 0) represent the primary news event by definition.
+    # Lede sentences (positions 1-4) carry immediate secondary details.
+    if position == 0:
+        score += 1.0
+        reasons.append("article headline (primary news event)")
+    elif 1 <= position <= 4:
         score += 0.5
         reasons.append("lead paragraph lede (core news event)")
 
@@ -265,7 +278,7 @@ def split_compound_headline(headline: str, context_subject: str = "") -> List[st
     # 2. Conjunction decomposition (e.g. "Haaland Rescues Man City as Arsenal Hold On in Champions League",
     # "Jet may have broken apart before Florida crash, officials say, as family named among victims",
     # or "The OceanGate Titan submersible disaster occurred on June 18, 2023, when the vessel catastrophically imploded...")
-    pattern = r"^(.*?\b[A-Za-z0-9]+)[,\s]+(as|while|whilst|amidst|when|whereas)\s+([a-zA-Z0-9].*)$"
+    pattern = r"^(.*?\b[A-Za-z0-9]+)[,\s]+(as|while|whilst|amidst|when|whereas|though|although)\s+([a-zA-Z0-9].*)$"
     m = re.match(pattern, cleaned.strip().rstrip("."))
     if not m:
         return [cleaned]
@@ -276,7 +289,7 @@ def split_compound_headline(headline: str, context_subject: str = "") -> List[st
     # Prepositional role phrases like "resigned as CEO" or "taken over as interim chief"
     # are grammatical objects, NOT conjunctions joining two separate events.
     if conj == "as":
-        role_verb_pattern = r"\b(?:resigned|resign|resigns|resigning|taken\s+over|take\s+over|took\s+over|takes\s+over|taking\s+over|stepped\s+down|step\s+down|stepped\s+in|step\s+in|served|serve|appointed|named|acted|hired|known|identified)\s*$"
+        role_verb_pattern = r"\b(?:resigned|resign|resigns|resigning|taken\s+over|take\s+over|took\s+over|takes\s+over|taking\s+over|stepped\s+down|step\s+down|stepped\s+in|step\s+in|served|serve|serves|appointed|named|acted|hired|known|identified|debut|debuts|debuted|cast|stars|starred|starring)\s*$"
         if re.search(role_verb_pattern, c1, re.I):
             return [cleaned]
 
@@ -425,16 +438,49 @@ def extract_claims(
             if len(p.split()) >= 3:
                 sentences.append(p)
 
-    # A single short sentence (a headline, a typed assertion) is the claim.
-    if treat_as_single_claim or len(sentences) <= 1:
-        score, reasons = score_sentence(text)
+    # If the user requested Headline Focus (treat_as_single_claim=True), extract the
+    # headline's primary assertion as the single claim.
+    if treat_as_single_claim:
+        candidate_text = headline_parts[0] if headline_parts else (sentences[0] if sentences else text.strip())
+        simplified = re.sub(r',\s*(?:who|whose|which)\s+[^,]{8,150}\s*,', '', candidate_text).strip()
+        if simplified and len(simplified) >= 15:
+            candidate_text = simplified
+        score, reasons = score_sentence(candidate_text, position=0, subject=person_subject or headline_subject)
+
+        if score <= 0:
+            for cand in headline_parts[1:] + sentences[headline_len:]:
+                cand_clean = re.sub(r',\s*(?:who|whose|which)\s+[^,]{8,150}\s*,', '', cand).strip()
+                s_score, s_reasons = score_sentence(cand_clean, position=0, subject=person_subject or headline_subject)
+                if s_score > 0:
+                    candidate_text, score, reasons = cand_clean, s_score, s_reasons
+                    break
+
         if score <= 0:
             raise NoClaimFoundError("Please enter a factual assertion, rather than a question or opinion.")
-        if len(text) > 400:
+
+        return [
+            Claim(
+                text=candidate_text,
+                score=score,
+                reasons=reasons,
+                position=0,
+            )
+        ]
+
+    # A single short sentence (a headline, a typed assertion) is the claim.
+    if len(sentences) <= 1:
+        target_text = sentences[0] if sentences else text.strip()
+        simplified = re.sub(r',\s*(?:who|whose|which)\s+[^,]{8,150}\s*,', '', target_text).strip()
+        if simplified and len(simplified) >= 15:
+            target_text = simplified
+        score, reasons = score_sentence(target_text, position=0, subject=person_subject or headline_subject)
+        if score <= 0:
+            raise NoClaimFoundError("Please enter a factual assertion, rather than a question or opinion.")
+        if len(target_text) > 400:
             raise InputValidationError("A single claim must be at most 400 characters; submit separate claims instead.")
         return [
             Claim(
-                text=text,
+                text=target_text,
                 score=score,
                 reasons=reasons,
                 position=0,
@@ -457,12 +503,12 @@ def extract_claims(
             sentences_examined=len(sentences),
         )
 
-    # If the headline had compound clauses (e.g. position 0 and position 1),
-    # prioritize both headline claims as Claim 1 and Claim 2 so multi-topic
-    # headlines are independently checked per fact-checking best practices.
+    # Strategy A: The headline is the central assertion of the news article by definition.
+    # Prioritize valid headline claims as Claim 1 (and Claim 2 if multi-topic) unless they are
+    # explicit questions, pure opinion, or editorial commentary.
     headline_claims = [
         c for c in scored
-        if c.position < headline_len and c.score >= 1.0 and not any("editorial" in r for r in c.reasons)
+        if c.position < headline_len and not any("editorial" in r for r in c.reasons) and not c.text.rstrip().endswith("?")
     ]
     body_claims = [c for c in scored if c.position >= headline_len]
     body_claims.sort(key=lambda c: (-c.score, c.position))
@@ -549,6 +595,9 @@ def extract_claims(
                 elif re.match(r"^he\b", claim.text, re.I):
                     claim.text = re.sub(r"^he\b", subject, claim.text, flags=re.I)
                     claim.reasons.append(f"resolved 'he' to '{subject}'")
+                elif re.match(r"^(?:the\s+)?(?:actor|actress|player|star|singer|victim|driver|pilot|leader|president|official|spokesperson|witness)\b", claim.text, re.I):
+                    claim.text = re.sub(r"^(?:the\s+)?(?:actor|actress|player|star|singer|victim|driver|pilot|leader|president|official|spokesperson|witness)\b", subject, claim.text, flags=re.I)
+                    claim.reasons.append(f"resolved role noun to '{subject}'")
                 else:
                     # Prepend the subject to provide context for downstream query & NLI
                     claim.text = f"{subject}: {claim.text}"
