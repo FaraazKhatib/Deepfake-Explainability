@@ -110,6 +110,25 @@
     <div id="originalTextContainer" class="original-text-box hidden"></div>
     <div id="verdictBanner"></div>
     <p id="summaryText"></p>
+    <a id="reviewEvidence" class="source-link hidden" target="_blank" rel="noopener noreferrer">View evidence for reviewed verdict</a>
+    <details id="feedbackPanel" hidden>
+      <summary>Give feedback on this verdict</summary>
+      <form id="feedbackForm">
+        <label for="feedbackVerdict">What should the verdict be?</label>
+        <select id="feedbackVerdict" required>
+          <option value="">Choose a verdict</option>
+          <option value="supported">Supported (likely true)</option>
+          <option value="contradicted">Contradicted (likely false)</option>
+          <option value="disputed">Disputed</option>
+          <option value="unverified">Unverified</option>
+        </select>
+        <label for="feedbackComment">Reason or evidence link (optional)</label>
+        <textarea id="feedbackComment" rows="2" maxlength="1000"></textarea>
+        <p>The checked claims, publisher (if available), and your correction will be sent for review.</p>
+        <button id="feedbackSend" class="btn-secondary" type="submit">Send feedback</button>
+        <p id="feedbackStatus" role="status"></p>
+      </form>
+    </details>
     <p id="explanationText"></p>
     <div id="claimsList"></div>
     <div id="analysisNotes" class="hidden"></div>

@@ -24,7 +24,7 @@ from typing import Callable, Dict, List, Tuple
 from .. import config
 from ..claims.query_builder import SearchQuery
 from .base import Evidence, RetrievalReport, canonical_url
-from .relevance import filter_by_language
+from .relevance import is_relevant, looks_english, non_ascii_letter_ratio, relevance_overlap
 from . import gdelt, news_rss, wikipedia
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,7 @@ def gather_evidence(
     query: SearchQuery,
     max_items: int | None = None,
     language: str | None = None,
+    claim_text: str = "",
 ) -> RetrievalReport:
     """
     Query all enabled sources in parallel and return a merged, deduplicated pool.
@@ -132,6 +133,21 @@ def gather_evidence(
                 report.errors[name] = f"{type(exc).__name__}: {exc}"
                 logger.warning("Evidence source %s failed: %s", name, exc)
 
+    ranking_text = claim_text or keyword_query
+    # Retry an overly specific news search once when it produced little usable coverage.
+    rss_hits = [item for item in collected if item.source == news_rss.SOURCE_NAME]
+    matching_domains = {item.domain for item in rss_hits if is_relevant(ranking_text, item.premise)[0]}
+    shorter = " ".join(query.terms[:3])
+    if (config.ENABLE_GOOGLE_NEWS and news_rss.SOURCE_NAME not in report.errors
+            and len(matching_domains) < 2 and shorter and shorter != keyword_query):
+        report.queries_used["Google News RSS (broader search)"] = shorter
+        try:
+            extra = news_rss.search(shorter, language=language)
+            collected.extend(extra)
+            report.per_source_counts[news_rss.SOURCE_NAME] += len(extra)
+        except Exception as exc:
+            report.errors["Google News RSS (broader search)"] = str(exc)
+
     # Interleave sources before capping so one backend cannot fill the budget.
     by_source: Dict[str, List[Evidence]] = {}
     for item in collected:
@@ -145,29 +161,27 @@ def gather_evidence(
                 interleaved.append(items[position])
         position += 1
 
-    # Deduplicate and cap before translation so we never waste time translating
-    # duplicate domain articles or items beyond the evidence budget.
-    deduped = deduplicate(interleaved, config.MAX_PER_DOMAIN)[:max_items]
-
-    # Check language of retrieved evidence:
-    # Instead of discarding non-English articles outright (which kills regional news),
-    # translate up to MAX_TRANSLATIONS high-value non-English snippets into English
-    # so the English NLI model can evaluate them without latency explosion.
+    # Rank the entire pool before the per-domain and model budgets are applied.
+    # A matching headline late in an RSS feed must still reach the stance model.
+    interleaved.sort(key=lambda item: relevance_overlap(ranking_text, item.premise), reverse=True)
+    deduped = deduplicate(interleaved, config.MAX_PER_DOMAIN)
     from ..translation import translate_to_english
-    from .relevance import looks_english
 
     kept: List[Evidence] = []
     translated_count = 0
-    MAX_TRANSLATIONS = 4
-
+    translation_attempts = 0
     for item in deduped:
-        if looks_english(item.premise):
+        if len(kept) >= max_items:
+            break
+        # English headline writers often omit articles and prepositions. Use
+        # the provider's language tag when present, with a script sanity check.
+        declared_english = item.language == "en" and non_ascii_letter_ratio(item.premise) <= config.NON_ASCII_LETTER_LIMIT
+        if not config.FILTER_NON_ENGLISH or looks_english(item.premise) or declared_english:
             kept.append(item)
-        elif translated_count < MAX_TRANSLATIONS:
-            # Non-English evidence retrieved (e.g. from local Marathi/Hindi Google News).
-            # Translate premise and title into English to preserve evidence coverage.
+        elif translation_attempts < 4:
+            translation_attempts += 1
             try:
-                trans = translate_to_english(item.premise, source_hint=language or "")
+                trans = translate_to_english(item.premise, source_hint=item.language or "")
                 if trans.get("was_translated") and trans.get("text"):
                     item.snippet = trans["text"]
                     translated_count += 1

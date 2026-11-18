@@ -75,7 +75,7 @@ def explain_claim(verdict: ClaimVerdict) -> str:
         # Unverified
         if not verdict.supporting_domains and not verdict.refuting_domains:
             parts.append(
-                "Unverified: No credible news sources were found confirming or denying this claim."
+                f"Unverified: {verdict.evidence_examined} evidence item(s) examined. None established support or contradiction."
             )
         else:
             parts.append(
@@ -134,10 +134,11 @@ def explain_overall(
         # All unverified
         parts.append(
             f"We checked {n_claims} key statement(s) against current public news and web sources. "
-            "None of the statements could be confirmed or debunked by credible reporting. "
-            "This usually happens when a story is satire, fictional, very new, or simply "
-            "not covered by established news outlets."
+            "The available evidence was insufficient for a verdict."
         )
+
+    if retrieval.errors:
+        parts.append("Search incomplete. Unavailable sources: " + ", ".join(sorted(retrieval.errors)) + ".")
 
     # 2. Writing style note if notable
     if style is not None:
@@ -156,7 +157,7 @@ def explain_overall(
     return "\n\n".join(parts)
 
 
-def short_summary(overall: dict, verdicts: List[ClaimVerdict]) -> str:
+def short_summary(overall: dict, verdicts: List[ClaimVerdict], retrieval: Optional[RetrievalReport] = None) -> str:
     """One-line summary for compact cards and extension UI."""
     total_sources = sum(
         len(v.supporting_domains) + len(v.refuting_domains) for v in verdicts
@@ -173,4 +174,9 @@ def short_summary(overall: dict, verdicts: List[ClaimVerdict]) -> str:
     else:
         if total_sources > 0:
             return f"Unverified: Checked {n_claims} claim(s), but there is not enough confirmed reporting to verify this story."
-        return "Unverified: No credible news reports were found covering these claims."
+        examined = sum(v.evidence_examined for v in verdicts)
+        if examined:
+            return f"Unverified: Examined {examined} evidence item(s). None clearly supported or contradicted the checked claims."
+        if retrieval and retrieval.errors:
+            return "Search incomplete: some evidence services were unavailable and no usable evidence was retrieved."
+        return "Unverified: The search returned no usable evidence for the checked claims."

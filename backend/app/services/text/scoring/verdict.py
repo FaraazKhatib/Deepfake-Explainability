@@ -283,9 +283,8 @@ def decide(
         verdict = VERDICT_UNVERIFIED
         if not supporting and not refuting:
             notes.append(
-                "No sources found for this claim. It may be too recent for news "
-                "search to have indexed it yet, or it may be local/niche news. "
-                "This does not mean the claim is false."
+                "The retrieved evidence did not establish this claim." if stances else
+                "No usable evidence was available to assess this claim."
             )
         else:
             found = len(supporting) + len(refuting)

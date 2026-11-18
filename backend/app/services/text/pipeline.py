@@ -21,6 +21,7 @@ import time
 from typing import List, Optional
 
 from . import config
+from .feedback import apply_review
 from .claims.extractor import Claim, extract_claims
 from .claims.query_builder import build_query
 from .credibility.sources import CredibilityIndex
@@ -137,6 +138,7 @@ class FactCheckPipeline:
             query = build_query(claim.text)
             report = gather_evidence(
                 query,
+                claim_text=claim.text,
                 language=translation_info.get("source_language")
                 if translation_info.get("was_translated")
                 else None,
@@ -183,7 +185,7 @@ class FactCheckPipeline:
         overall = combine_claim_verdicts(verdicts, strict_mode=strict_mode)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
 
-        return {
+        return apply_review({
             # --- headline fields -------------------------------------------
             "verdict": overall["overall"],
             "rationale": overall["rationale"],
@@ -193,7 +195,7 @@ class FactCheckPipeline:
             "disputed_claims": overall.get("disputed", 0),
             "unverified_claims": overall.get("unverified", 0),
             "explanation": explain_overall(verdicts, merged_report, style),
-            "summary": short_summary(overall, verdicts),
+            "summary": short_summary(overall, verdicts, merged_report),
             # --- multilingual details -----------------------------------------
             "translation": translation_info,
             # --- detail ------------------------------------------------------
@@ -210,7 +212,7 @@ class FactCheckPipeline:
                 "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 **({"notes": [f"Automatically translated from {translation_info.get('source_language_name', 'detected language')} to English for fact-checking."]} if translation_info.get("was_translated") else {}),
             },
-        }
+        })
 
     # ------------------------------------------------------------------
     def info(self) -> dict:

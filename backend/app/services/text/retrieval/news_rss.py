@@ -138,6 +138,7 @@ def search(
                 url=link,
                 domain=domain,
                 source=SOURCE_NAME,
+                language=(item.findtext("language") or params["hl"]).split("-")[0].lower(),
                 snippet=snippet[:500],
                 published=parse_datetime(item.findtext("pubDate") or "", _DATE_FORMATS),
                 outlet=outlet or domain,

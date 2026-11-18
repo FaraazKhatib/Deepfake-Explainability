@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────────────────────────
    VeriTrust AI — Chrome Extension Popup Logic
-   Calls POST /api/v1/text/check-news
+   Submits fact checks to the background worker
    - Scans and analyses run in background service worker (background.js)
      so operations continue even if the popup closes due to website
      notification dialogs, subscription modals, or lost focus.
@@ -32,49 +32,8 @@ async function getStoredApiUrl() {
 }
 
 async function loadState() {
-  try {
-    if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
-      const data = await chrome.storage.local.get('vt_state');
-      if (data && data.vt_state) return data.vt_state;
-    }
-  } catch (err) {
-    console.warn('[VeriTrust] chrome.storage get error:', err);
-  }
-  try {
-    const raw = localStorage.getItem('vt_saved_state');
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function persistState(patch) {
-  try {
-    const current = (await loadState()) || {};
-    const updated = { ...current, ...patch, updatedAt: Date.now() };
-
-    if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
-      await chrome.storage.local.set({ vt_state: updated });
-    }
-    try {
-      localStorage.setItem('vt_saved_state', JSON.stringify(updated));
-    } catch {}
-  } catch (err) {
-    console.warn('[VeriTrust] Error persisting state:', err);
-  }
-}
-
-async function clearPersistedState() {
-  try {
-    if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
-      await chrome.storage.local.remove('vt_state');
-    }
-    try {
-      localStorage.removeItem('vt_saved_state');
-    } catch {}
-  } catch (err) {
-    console.warn('[VeriTrust] Error clearing state:', err);
-  }
+  const data = await chrome.storage.local.get('vt_state');
+  return data.vt_state || null;
 }
 
 // ── Main Initialization ──────────────────────────────────────────
@@ -186,40 +145,105 @@ async function initPopup() {
       e.preventDefault();
       const tabTarget = tab.dataset.tab;
       switchTab(tabTarget);
-      persistState({ activeTab: tabTarget });
+      localStorage.setItem('vt_tab', tabTarget);
     });
   });
 
-  let pollInterval = null;
-  function startStatusPolling() {
-    if (pollInterval) return;
-    pollInterval = setInterval(async () => {
-      try {
-        const current = await loadState();
-        if (current && current.vt_status === 'done' && current.resultData) {
-          stopStatusPolling();
-          applyState(current);
-        } else if (current && current.vt_status === 'error') {
-          stopStatusPolling();
-          applyState(current);
-        } else if (current?.scanStartTime && (Date.now() - current.scanStartTime > 75000)) {
-          stopStatusPolling();
-          applyState({ ...current, vt_status: 'ready', error: null });
-        }
-      } catch {}
-    }, 1000);
+  let displayedScanId = null;
+  let intent = 0;
+  let stateRevision = 0;
+  let recoveryTimer;
+
+  async function refreshState() {
+    const revision = stateRevision;
+    const reply = await chrome.runtime.sendMessage({ action: 'GET_SCAN_STATE' });
+    if (revision === stateRevision && reply?.state) applyState(reply.state);
   }
 
-  function stopStatusPolling() {
-    if (pollInterval) {
-      clearInterval(pollInterval);
-      pollInterval = null;
-    }
+  function resetView() {
+    clearTimeout(recoveryTimer);
+    displayedScanId = null;
+    if (inputText) inputText.value = '';
+    setLoading(scanBtn, false);
+    setLoading(analyzeBtn, false);
+    hideResults();
+    hideError();
+    scannedSourceBanner?.classList.add('hidden');
+    bgScanProgressBox?.classList.add('hidden');
+    if (statusBadge) statusBadge.textContent = 'Ready';
+    if (resetBtn) resetBtn.style.display = 'none';
+    switchTab('paste');
   }
+
+  async function clearCheck() {
+    const request = ++intent;
+    const clearingId = displayedScanId;
+    const reply = await chrome.runtime.sendMessage({ action: 'CANCEL_ANALYSIS', scanId: clearingId });
+    if (request !== intent || (displayedScanId && displayedScanId !== clearingId)) return false;
+    if (reply?.status === 'superseded') {
+      await refreshState();
+      return false;
+    }
+    if (reply?.status !== 'cleared') throw new Error(reply?.error || 'Could not clear the scan.');
+    localStorage.removeItem('vt_draft');
+    localStorage.removeItem('vt_tab');
+    localStorage.removeItem('vt_saved_state');
+    resetView();
+    return true;
+  }
+
+  const feedbackPanel = $('#feedbackPanel');
+  const feedbackVerdict = $('#feedbackVerdict');
+  const feedbackComment = $('#feedbackComment');
+  const feedbackStatus = $('#feedbackStatus');
+  const feedbackSend = $('#feedbackSend');
+  let feedbackTarget = null;
+
+  function prepareFeedback(saved) {
+    const claims = (saved.resultData?.claims || []).map(item => item.claim).filter(Boolean);
+    feedbackPanel.hidden = !saved.scanId || !claims.length;
+    if (feedbackTarget?.scan_id === saved.scanId && !feedbackPanel.hidden) return;
+    feedbackTarget = null;
+    feedbackPanel.open = false;
+    feedbackStatus.textContent = '';
+    feedbackVerdict.value = '';
+    feedbackComment.value = '';
+    feedbackSend.disabled = false;
+    if (feedbackPanel.hidden) return;
+    let publisher = '';
+    try { publisher = new URL(saved.pageUrl).hostname; } catch {}
+    feedbackTarget = { scan_id: saved.scanId, original_verdict: saved.resultData.verdict, claims, publisher };
+  }
+
+  $('#feedbackForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const target = feedbackTarget;
+    if (!target || !feedbackVerdict.value || feedbackSend.disabled) return;
+    const report = { ...target, suggested_verdict: feedbackVerdict.value, comment: feedbackComment.value.trim() };
+    feedbackSend.disabled = true;
+    feedbackStatus.textContent = 'Sending feedback…';
+    try {
+      const api = await getStoredApiUrl();
+      const response = await fetch(api + '/api/v1/text/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(report), signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error('Submission failed');
+      const receipt = await response.json();
+      if (receipt.status !== 'saved' || receipt.scan_id !== target.scan_id) throw new Error('Missing receipt');
+      if (feedbackTarget === target) feedbackStatus.textContent = 'Feedback saved for review. An approved correction appears on a fresh scan.';
+    } catch {
+      if (feedbackTarget === target) feedbackStatus.textContent = 'Could not confirm your submission. Please retry.';
+    } finally {
+      if (feedbackTarget === target) feedbackSend.disabled = false;
+    }
+  });
 
   // State application helper
   function applyState(saved) {
-    if (!saved) return;
+    clearTimeout(recoveryTimer);
+    if (!saved) return resetView();
+    displayedScanId = saved.scanId ?? null;
 
     if (saved.activeTab === 'scan') {
       switchTab('scan');
@@ -239,31 +263,23 @@ async function initPopup() {
     }
 
     if (saved.vt_status === 'scanning') {
-      const elapsed = Date.now() - (saved.scanStartTime || 0);
-      if (elapsed > 75000) {
-        // If an old scan was left dangling, reset smoothly to ready state
-        stopStatusPolling();
-        saved.vt_status = 'ready';
-        saved.error = null;
-        persistState(saved);
-        setLoading(scanBtn, false);
-        setLoading(analyzeBtn, false);
-        if (statusBadge) statusBadge.textContent = 'Ready';
-        return;
-      }
-
+      recoveryTimer = setTimeout(() => refreshState().catch(console.warn),
+        Math.max(1000, (saved.deadline || saved.scanStartTime + 90000) - Date.now() + 1000));
+      setLoading(scanBtn, false);
+      setLoading(analyzeBtn, false);
       const activeBtn = saved.activeTab === 'paste' ? analyzeBtn : scanBtn;
       setLoading(activeBtn, true);
       hideResults();
       hideError();
       if (statusBadge) statusBadge.textContent = 'Verifying story… (~8-12s)';
       if (resetBtn) resetBtn.style.display = 'inline-block';
-      startStatusPolling();
+
     } else {
-      stopStatusPolling();
+
       if (saved.vt_status === 'done' && saved.resultData) {
         setLoading(scanBtn, false);
         setLoading(analyzeBtn, false);
+        prepareFeedback(saved);
         renderResults(saved.resultData);
         if (statusBadge) statusBadge.textContent = 'Done';
         if (resetBtn) resetBtn.style.display = 'inline-block';
@@ -274,6 +290,7 @@ async function initPopup() {
         if (statusBadge) statusBadge.textContent = 'Error';
         if (resetBtn) resetBtn.style.display = 'inline-block';
       } else if (saved.resultData) {
+        prepareFeedback(saved);
         renderResults(saved.resultData);
         if (statusBadge) statusBadge.textContent = 'Done';
         if (resetBtn) resetBtn.style.display = 'inline-block';
@@ -292,6 +309,7 @@ async function initPopup() {
       return;
     }
 
+    const revision = stateRevision;
     let currentTab = null;
     try {
       if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
@@ -300,6 +318,7 @@ async function initPopup() {
       }
     } catch {}
 
+    if (revision !== stateRevision) return;
     const isSameTab = currentTab && (
       (saved.tabId && currentTab.id === saved.tabId) ||
       (saved.pageUrl && currentTab.url === saved.pageUrl)
@@ -359,69 +378,26 @@ async function initPopup() {
     }
   }
 
-  // Restore saved state on initial load
-  try {
-    const saved = await loadState();
-    if (saved) {
-      applyState(saved);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.vt_state) {
+      ++stateRevision;
+      applyState(changes.vt_state.newValue);
     }
-  } catch (e) {
-    console.warn('[VeriTrust] Failed to restore saved state:', e);
-  }
+  });
 
-  // Listen to background service worker state changes in real-time
-  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.vt_state?.newValue) {
-        applyState(changes.vt_state.newValue);
-      }
-    });
-  }
-
-  // Save text changes on input
-  let inputTimer = null;
+  // Draft edits and tab preferences never write the worker's scan record.
   if (inputText) {
+    inputText.value = localStorage.getItem('vt_draft') || '';
+    if (inputText.value && resetBtn) resetBtn.style.display = 'inline-block';
     inputText.addEventListener('input', () => {
-      clearTimeout(inputTimer);
-      inputTimer = setTimeout(() => {
-        const text = inputText.value;
-        persistState({ inputText: text });
-        if (resetBtn) resetBtn.style.display = text.trim() ? 'inline-block' : 'none';
-      }, 250);
+      localStorage.setItem('vt_draft', inputText.value);
+      if (resetBtn) resetBtn.style.display = inputText.value.trim() || displayedScanId ? 'inline-block' : 'none';
     });
   }
+  switchTab(localStorage.getItem('vt_tab') || 'paste');
+  await refreshState().catch(console.warn);
 
-  // Reset / New Check
-  if (resetBtn) {
-    resetBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      stopStatusPolling();
-      await clearPersistedState();
-
-      try {
-        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-          chrome.runtime.sendMessage({ action: 'CLEAR_BADGE' }).catch(() => {});
-        }
-      } catch {}
-
-      if (inputText) inputText.value = '';
-      if (extractedPreview) {
-        extractedPreview.textContent = '';
-        extractedPreview.classList.add('hidden');
-      }
-
-      setLoading(scanBtn, false);
-      setLoading(analyzeBtn, false);
-      hideResults();
-      hideError();
-      if (scannedSourceBanner) scannedSourceBanner.classList.add('hidden');
-      if (bgScanProgressBox) bgScanProgressBox.classList.add('hidden');
-
-      if (statusBadge) statusBadge.textContent = 'Ready';
-      resetBtn.style.display = 'none';
-      switchTab('paste');
-    });
-  }
+  resetBtn?.addEventListener('click', () => clearCheck().catch(err => showError(err.message)));
 
   // Multi-tab navigation & action handlers
   if (goToScannedTabBtn) {
@@ -456,17 +432,7 @@ async function initPopup() {
     bgScanCancelBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       try {
-        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-          await chrome.runtime.sendMessage({ action: 'CANCEL_ANALYSIS' }).catch(() => {});
-        }
-        await clearPersistedState();
-        hideError();
-        hideResults();
-        if (bgScanProgressBox) bgScanProgressBox.classList.add('hidden');
-        if (scannedSourceBanner) scannedSourceBanner.classList.add('hidden');
-        setLoading(scanBtn, false);
-        setLoading(analyzeBtn, false);
-        if (statusBadge) statusBadge.textContent = 'Ready';
+        if (!await clearCheck()) return;
         switchTab('scan');
         await scanCurrentPage();
       } catch (err) {
@@ -479,10 +445,7 @@ async function initPopup() {
     scanCurrentTabBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       try {
-        await clearPersistedState();
-        hideResults();
-        hideError();
-        if (scannedSourceBanner) scannedSourceBanner.classList.add('hidden');
+        if (!await clearCheck()) return;
         switchTab('scan');
         await scanCurrentPage();
       } catch (err) {
@@ -530,7 +493,7 @@ async function initPopup() {
         const data = await res.json();
         if (data.was_translated && data.text) {
           inputText.value = data.text;
-          persistState({ inputText: data.text });
+          localStorage.setItem('vt_draft', data.text);
           if (statusBadge) statusBadge.textContent = `Translated (${data.source_language_name})`;
         } else {
           if (statusBadge) statusBadge.textContent = 'Already English';
@@ -554,6 +517,7 @@ async function initPopup() {
 
   // ── Scan the current page ───────────────────────────────────────
   async function scanCurrentPage() {
+    const request = ++intent;
     setLoading(scanBtn, true);
     hideError();
     hideResults();
@@ -589,6 +553,7 @@ async function initPopup() {
         func: extractPageText,
       });
 
+      if (request !== intent) return;
       const rawResult = results?.[0]?.result;
       const pageText = typeof rawResult === 'object' && rawResult !== null ? rawResult.text : rawResult;
       const detectedPageLang = typeof rawResult === 'object' && rawResult !== null ? rawResult.language : '';
@@ -605,19 +570,6 @@ async function initPopup() {
         extractedPreview.classList.remove('hidden');
       }
 
-      const now = Date.now();
-      await persistState({
-        activeTab: 'scan',
-        vt_status: 'scanning',
-        scanStartTime: now,
-        extractedText: pageText,
-        pageUrl: tab.url || '',
-        tabTitle: tab.title || '',
-        tabId: tab.id || null,
-        windowId: tab.windowId || null,
-        error: null,
-      });
-
       if (resetBtn) resetBtn.style.display = 'inline-block';
 
       await runAnalysis(
@@ -631,6 +583,7 @@ async function initPopup() {
         tab.windowId || null
       );
     } catch (err) {
+      if (request !== intent) return;
       showError(err.message || 'Error scanning page');
       setLoading(scanBtn, false);
       if (statusBadge) statusBadge.textContent = 'Error';
@@ -659,115 +612,24 @@ async function initPopup() {
     if (statusBadge) statusBadge.textContent = isStrictMode ? 'Deep auditing (Strict Tier-1)…' : 'Verifying story… (~8-12s)';
     if (resetBtn) resetBtn.style.display = 'inline-block';
 
-    const now = Date.now();
-    await persistState({
-      vt_status: 'scanning',
-      scanStartTime: now,
-      activeTab,
-      extractedText: text,
-      pageUrl,
-      tabTitle,
-      tabId,
-      windowId,
-      strictMode: isStrictMode,
-      singleClaim: isSingleClaim,
-      error: null,
-    });
-
-    startStatusPolling();
-
-    // Trigger background service worker for badge and desktop notification
-    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({
-        action: 'START_ANALYSIS',
-        payload: {
-          text,
-          activeTab,
-          sourceLanguage,
-          pageUrl,
-          tabTitle,
-          tabId,
-          windowId,
-          strictMode: isStrictMode,
-          singleClaim: isSingleClaim,
-        },
-      }).then((resp) => {
-        if (resp?.status === 'done' && resp?.data) {
-          stopStatusPolling();
-          renderResults(resp.data);
-          if (statusBadge) statusBadge.textContent = 'Done';
-          setLoading(triggerBtn, false);
-        }
-      }).catch(() => {});
-    }
-
-    // Direct fetch in parallel so open popup receives immediate response without IPC lag
-    await runDirectFetch(text, triggerBtn, sourceLanguage, isStrictMode, isSingleClaim);
-  }
-
-  // Direct fetch execution
-  async function runDirectFetch(text, triggerBtn, sourceLanguage = '', strictMode = false, singleClaim = false) {
-    const MAX_CHARS = 5000;
-    const trimmedText = text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) : text;
-    const apiBase = await getStoredApiUrl();
-
-    // Abort controller with 75-second safety limit
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 75000);
-
+    const request = ++intent;
+    const scanId = crypto.randomUUID();
+    displayedScanId = scanId;
     try {
-      const res = await fetch(`${apiBase}/api/v1/text/check-news`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: trimmedText,
-          max_claims: singleClaim ? 1 : 3,
-          single_claim: Boolean(singleClaim),
-          strict_mode: Boolean(strictMode),
-          include_evidence: true,
-          ...(sourceLanguage ? { source_language: sourceLanguage } : {}),
-        }),
-        signal: controller.signal,
+      const reply = await chrome.runtime.sendMessage({
+        action: 'START_ANALYSIS', scanId,
+        payload: { text, activeTab, sourceLanguage, pageUrl, tabTitle, tabId, windowId,
+          strictMode: isStrictMode, singleClaim: isSingleClaim },
       });
-
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-        throw new Error(errBody.message || errBody.detail || `Server error (${res.status})`);
-      }
-
-      const data = await res.json();
-      stopStatusPolling();
-      renderResults(data);
-
-      if (statusBadge) statusBadge.textContent = 'Done';
-      if (resetBtn) resetBtn.style.display = 'inline-block';
-
-      await persistState({
-        vt_status: 'done',
-        resultData: data,
-        scanCompletedTime: Date.now(),
-        error: null,
-      });
+      if (reply?.status === 'error') throw new Error(reply.error);
     } catch (err) {
-      clearTimeout(timeoutId);
-      stopStatusPolling();
-      console.error('[VeriTrust] Direct analysis error:', err);
-      if (err.name === 'AbortError') {
-        showError('Verification request timed out. Please try again.');
-      } else if (err.message === 'Failed to fetch' || err.message?.includes('NetworkError')) {
-        showError('Cannot connect to VeriTrust AI backend. Please verify the server is running on port 8001.');
-      } else {
-        showError(err.message || 'Analysis failed.');
-      }
-      if (statusBadge) statusBadge.textContent = 'Error';
-    } finally {
+      if (request !== intent || displayedScanId !== scanId) return;
+      showError(err.message || 'Could not contact the extension background worker.');
       setLoading(triggerBtn, false);
+      if (statusBadge) statusBadge.textContent = 'Error';
     }
   }
 
-  // ── Render results ──────────────────────────────────────────────
   function renderResults(data) {
     if (!resultsSection) return;
 
@@ -814,6 +676,10 @@ async function initPopup() {
       }
     }
 
+    const reviewEvidence = $('#reviewEvidence');
+    const reviewUrl = data.review?.source || '';
+    reviewEvidence.classList.toggle('hidden', !/^https?:\/\//i.test(reviewUrl));
+    reviewEvidence.href = /^https?:\/\//i.test(reviewUrl) ? reviewUrl : '';
     // Summary & explanation
     if (summaryText) summaryText.textContent = data.summary || data.rationale || '';
     if (explanationText) explanationText.textContent = data.explanation || '';
@@ -922,6 +788,8 @@ async function initPopup() {
   }
 
   function hideResults() {
+    feedbackTarget = null;
+    feedbackPanel.hidden = true;
     if (resultsSection) resultsSection.classList.add('hidden');
     if (claimsList) claimsList.innerHTML = '';
     if (analysisNotes) analysisNotes.classList.add('hidden');

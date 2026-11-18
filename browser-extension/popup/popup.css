@@ -778,3 +778,9 @@ textarea::placeholder {
     max-height: 100vh;
   }
 }
+
+#feedbackPanel { margin: 10px 0; padding: 8px 10px; border: 1px solid #383843; border-radius: 6px; }
+#feedbackPanel summary { cursor: pointer; color: #b8baff; }
+#feedbackForm { display: grid; gap: 6px; padding-top: 8px; }
+#feedbackForm select, #feedbackForm textarea { width: 100%; color: inherit; background: #202026; padding: 6px; border: 1px solid #555563; border-radius: 4px; font: inherit; }
+#feedbackForm p { font-size: 12px; color: #c2c2cd; }

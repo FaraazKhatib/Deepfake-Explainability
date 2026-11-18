@@ -8,11 +8,13 @@ pipeline is pulled off ``request.app.state`` through a dependency.
 from __future__ import annotations
 
 import logging
+import sqlite3
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..feedback import VerdictFeedback, save_feedback
 from ..exceptions import ModelLoadError
 from ..pipeline import FactCheckPipeline
 from ..retrieval.base import clear_cache
@@ -114,6 +116,16 @@ def check_news(
 
 
 
+
+
+@router.post("/feedback", summary="Save a verdict correction for review")
+def submit_feedback(report: VerdictFeedback):
+    try:
+        save_feedback(report)
+    except (OSError, sqlite3.Error) as exc:
+        logger.exception("Could not save verdict feedback")
+        raise HTTPException(503, "Feedback storage is unavailable. Please retry.") from exc
+    return {"status": "saved", "scan_id": str(report.scan_id)}
 
 
 @router.post(
