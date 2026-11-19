@@ -113,6 +113,7 @@ def check_news(
         include_evidence=payload.include_evidence,
         source_language=payload.source_language,
         strict_mode=payload.strict_mode,
+        page_url=payload.page_url,
     )
 
 

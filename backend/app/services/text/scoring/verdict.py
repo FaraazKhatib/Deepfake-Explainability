@@ -168,10 +168,14 @@ def single_authoritative_source(sides: List[DomainStance]) -> Optional[DomainSta
     """
     Find a source strong enough to carry a verdict on its own.
 
-    Only tiers whose evidence is not syndicated newsroom copy qualify, and only
-    above a weight floor. See SINGLE_SOURCE_TIERS in config.py for the reasoning.
+    Any website explicitly listed in source_credibility.csv (is_rated=True)
+    or belonging to SINGLE_SOURCE_TIERS can confirm or refute a claim on its own.
     """
     for stance in sides:
+        # If the domain is explicitly rated in source_credibility.csv,
+        # it carries full authority to verify/refute on its own:
+        if stance.rating.is_rated:
+            return stance
         if (
             stance.rating.tier in config.SINGLE_SOURCE_TIERS
             and stance.rating.weight >= config.SINGLE_SOURCE_MIN_CREDIBILITY
@@ -190,7 +194,7 @@ def _confidence_band(
     margin = winning_weight - losing_weight
     if source_count >= 4 and margin >= 2.0:
         return "High"
-    if source_count >= 2 and margin >= 0.8:
+    if source_count >= 1 and margin >= 0.5:
         return "Medium"
     return "Low"
 
@@ -200,9 +204,33 @@ def decide(
     stances: List[StanceResult],
     credibility: CredibilityIndex,
     strict_mode: bool = False,
+    page_url: Optional[str] = None,
 ) -> ClaimVerdict:
     """Aggregate stances into a verdict for one claim."""
     domain_stances = collapse_to_domains(stances, credibility)
+
+    # When scanning a page, check if the scanned domain itself is in source_credibility.csv
+    page_domain = None
+    if page_url:
+        from ..retrieval.base import normalise_domain
+        page_domain = normalise_domain(page_url)
+
+    if page_domain:
+        page_rating = credibility.lookup(page_domain)
+        # If the scanned webpage itself is from a verified outlet in source_credibility.csv:
+        if page_rating.is_rated and page_domain not in domain_stances:
+            domain_stances[page_domain] = DomainStance(
+                domain=page_domain,
+                outlet=page_domain,
+                stance=STANCE_SUPPORTS,
+                confidence=0.92,
+                rating=page_rating,
+                recency_factor=1.0,
+                weight=page_rating.weight * 0.92,
+                url=page_url or f"https://{page_domain}",
+                title=claim,
+                age_days=0.0,
+            )
 
     supporting = sorted(
         (d for d in domain_stances.values() if d.stance == STANCE_SUPPORTS),
@@ -290,10 +318,8 @@ def decide(
             found = len(supporting) + len(refuting)
             if found < minimum:
                 notes.append(
-                    f"Not enough independent sources found ({found}) to reach a verdict. "
-                    f"We need at least {minimum}. "
-                    "This often means the story is very recent and hasn't been "
-                    "indexed by news search yet — not that it is false."
+                    f"Only {found} source found, and it is not present in source_credibility.csv. "
+                    f"At least {minimum} independent sources required to verify unlisted outlets."
                 )
             else:
                 notes.append(

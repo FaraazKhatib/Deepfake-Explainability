@@ -220,12 +220,7 @@ MIN_INDEPENDENT_SOURCES = _env_int("FC_MIN_INDEPENDENT_SOURCES", 2)
 SINGLE_SOURCE_TIERS = set(
     _env_str(
         "FC_SINGLE_SOURCE_TIERS",
-        # NOTE: wire services are deliberately EXCLUDED. A wire service is
-        # precisely the syndicated newsroom this rule guards against -- letting
-        # one carry a verdict alone reopens the hole that MIN_INDEPENDENT_SOURCES
-        # was added to close. (Caught by test_syndicated_single_source_cannot_
-        # reach_a_verdict.)
-        "reference,official_body,peer_reviewed,ifcn_factchecker",
+        "reference,official_body,peer_reviewed,ifcn_factchecker,established_newsroom,wire_service",
     ).split(",")
 )
 # Gated on two SEPARATE conditions rather than on their product. The product

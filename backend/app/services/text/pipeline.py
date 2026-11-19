@@ -93,6 +93,7 @@ class FactCheckPipeline:
         include_evidence: bool = True,
         source_language: Optional[str] = None,
         strict_mode: bool = False,
+        page_url: Optional[str] = None,
     ) -> dict:
         """
         Run a full fact check.
@@ -157,7 +158,7 @@ class FactCheckPipeline:
             merged_evidence.extend(report.evidence)
 
             stances = self.stance_detector.classify(claim.text, report.evidence)
-            verdict = decide(claim.text, stances, self.credibility, strict_mode=strict_mode)
+            verdict = decide(claim.text, stances, self.credibility, strict_mode=strict_mode, page_url=page_url)
             verdicts.append(verdict)
 
             # A claim phrased as reported speech is a statement ABOUT an

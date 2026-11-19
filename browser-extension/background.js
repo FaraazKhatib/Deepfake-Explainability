@@ -31,7 +31,8 @@ async function getState() {
 }
 
 async function analyze(job, payload) {
-  const { text, singleClaim, strictMode, sourceLanguage } = payload;
+  const { text, singleClaim, strictMode, sourceLanguage, pageUrl } = payload;
+  const targetPageUrl = pageUrl || job.state?.pageUrl || '';
   const timeout = setTimeout(() => job.controller.abort(), SCAN_TIMEOUT_MS);
   try {
     const { apiUrl } = await chrome.storage.local.get('apiUrl');
@@ -43,6 +44,7 @@ async function analyze(job, payload) {
         text: text.slice(0, 5000), max_claims: singleClaim ? 1 : 3,
         single_claim: Boolean(singleClaim), strict_mode: Boolean(strictMode),
         include_evidence: true, ...(sourceLanguage ? { source_language: sourceLanguage } : {}),
+        page_url: targetPageUrl,
       }),
     });
     if (!response.ok) {

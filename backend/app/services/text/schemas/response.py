@@ -46,6 +46,9 @@ class CheckNewsRequest(BaseModel):
     strict_mode: bool = Field(
         False, description="Strict verification mode: requires rated newsrooms and higher confidence thresholds."
     )
+    page_url: Optional[str] = Field(
+        None, description="URL of the page being scanned."
+    )
 
 
 class TranslateRequest(BaseModel):
