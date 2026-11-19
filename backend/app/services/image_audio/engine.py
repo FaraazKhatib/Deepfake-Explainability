@@ -389,26 +389,11 @@ class Engine:
         timing["faces"] = (time.perf_counter() - started) * 1000
 
         started = time.perf_counter()
-        result = fuse(signals, self.settings.thresholds, fusion_config, self.calibration)
+        result = fuse(
+            signals, self.settings.thresholds, fusion_config, self.calibration,
+            image_allow_uncalibrated_authentic=self.settings.allow_uncalibrated_authentic,
+        )
         timing["fusion"] = (time.perf_counter() - started) * 1000
-
-        # A current positive can be a useful review flag, but the configured image checkpoints
-        # have neither local calibration nor a measured error rate on the generators people now
-        # upload.  Their shared "real" reading must not be rendered as affirmative evidence of a
-        # real photograph.  Provenance overrides are explicit evidence and intentionally bypass
-        # this rule.  The raw score remains intact for calibration and diagnostics.
-        if (
-            not result.calibrated
-            and not self.settings.allow_uncalibrated_authentic
-            and result.overridden_by is None
-            and result.verdict == VERDICT_AUTHENTIC
-        ):
-            result.verdict = VERDICT_UNCERTAIN
-            result.confidence = 0.0
-            result.notes.append(
-                "Models think this is real, but they aren't fully calibrated yet, so we're marking "
-                "it as uncertain to be safe."
-            )
 
         heatmap = None
         if want_heatmap and self.settings.enable_heatmap and best_synthetic is not None:

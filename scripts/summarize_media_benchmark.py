@@ -17,11 +17,14 @@ def summarize(models,keys,modality,legacy=False):
     for path in sorted(paths):
         row = records[keys[0]][path]
         result = fuse([Signal(k,records[k][path]['score'],models[k]['model']['weight'],
-                              models[k]['model']['kind']) for k in keys],cfg.thresholds,cfg.fusion)
+                              models[k]['model']['kind']) for k in keys],cfg.thresholds,cfg.fusion,
+                      image_allow_uncalibrated_authentic=(
+                          cfg.allow_uncalibrated_authentic if modality == 'image' and not legacy else None
+                      ))
         verdict = result.verdict
         # Reproduce the previous spread rule; all other fusion settings unchanged.
         if legacy and result.spread_exceeds_limit: verdict = 'uncertain'
-        if modality == 'image' and verdict == 'likely_authentic': verdict = 'uncertain'
+        if legacy and modality == 'image' and verdict == 'likely_authentic': verdict = 'uncertain'
         predicted = {'likely_authentic':'real','likely_ai_generated':'fake','uncertain':'uncertain'}[verdict]
         predictions.append({'path':path,'label':row['label'],'score':result.score,'predicted':predicted,
                             'binary_prediction':'fake' if result.score>=.5 else 'real'})

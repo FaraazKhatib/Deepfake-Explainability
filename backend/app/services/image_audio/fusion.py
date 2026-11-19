@@ -64,6 +64,7 @@ from .config import (
 )
 
 EPS = 1e-6
+IMAGE_REAL_CUTOFF = 0.30
 
 # Emitted from both the fused path and the face override path. It is a statement about what kind of
 # manipulation the readings suggest, which is independent of how the verdict was arrived at, and it
@@ -392,6 +393,8 @@ def fuse(
     thresholds: Thresholds,
     cfg: FusionConfig,
     calibration: Calibration | None = None,
+    *,
+    image_allow_uncalibrated_authentic: bool | None = None,
 ) -> FusionOutput:
     calibration = calibration or Calibration()
     notes: list[str] = []
@@ -496,6 +499,12 @@ def fuse(
     confidence = _margin_confidence(score, thresholds)
     verdict = thresholds.verdict(score)
 
+    low_image_score = image_allow_uncalibrated_authentic is not None and score < IMAGE_REAL_CUTOFF
+    if low_image_score:
+        verdict = VERDICT_AUTHENTIC
+        confidence = (1.0 - score / IMAGE_REAL_CUTOFF) * 100.0
+        notes.append("The image model AI score is below 30%, so the image is classified as likely real.")
+
     capped = [s.name for s, e in rows if id(s) in voted and abs(e - s.p_fake) > 1e-9]
     if capped:
         notes.append(
@@ -531,7 +540,7 @@ def fuse(
     # accusation. Holding at uncertain says nobody could tell, which is the honest reading when one
     # detector is certain and the others recognise nothing.
     escalated_by = None
-    if cfg.dissent_escalates and verdict == VERDICT_AUTHENTIC:
+    if not low_image_score and cfg.dissent_escalates and verdict == VERDICT_AUTHENTIC:
         dissenters = [s for s, _ in ml_rows if s.p_fake >= thresholds.ai_min]
         
         # Audio ensembles are large and prone to single-model hallucinations.
@@ -590,7 +599,9 @@ def fuse(
     if score >= thresholds.ai_min and audio_positives:
         same_decisive_band = True
 
-    if spread > limit and not same_decisive_band:
+    if spread > limit and low_image_score:
+        notes.append("The individual models differ significantly in their scores.")
+    elif spread > limit and not same_decisive_band:
         confidence = 0.0
         verdict = VERDICT_UNCERTAIN
         notes.append(
@@ -598,6 +609,12 @@ def fuse(
         )
     elif spread > limit:
         notes.append("The models agree on the label, but differ in how strongly they support it.")
+
+    if (image_allow_uncalibrated_authentic is False and not calibration.fitted
+            and not low_image_score and verdict == VERDICT_AUTHENTIC):
+        verdict = VERDICT_UNCERTAIN
+        confidence = 0.0
+        notes.append("The uncalibrated image score falls outside the below-30% likely real range.")
 
     if not calibration.fitted:
         notes.append(

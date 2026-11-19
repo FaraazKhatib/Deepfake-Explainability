@@ -61,22 +61,14 @@ export default function ImageDetectionPage() {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <div className="text-center mb-6">
               <span className="inline-block px-4 py-2 rounded-full text-lg font-bold">
-                Verdict: {result.verdict?.replaceAll('_', ' ')}
+                Verdict: {result.verdict === 'likely_authentic' ? 'Likely real image' : result.verdict?.replaceAll('_', ' ')}
               </span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 gap-4 mb-8">
               <div className="bg-gray-50 p-4 rounded-xl text-center">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-1">Model AI score</p>
                 <p className="text-lg font-semibold text-gray-900">{result.score_ai < 0.001 ? '<0.1' : (result.score_ai * 100).toFixed(1)}%</p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-xl text-center">
-                <p className="text-xs text-gray-500 uppercase font-medium mb-1">Signal strength</p>
-                <p className="text-lg font-semibold text-gray-900">{result.confidence.toFixed(1)}%</p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-xl text-center">
-                <p className="text-xs text-gray-500 uppercase font-medium mb-1">Calibration</p>
-                <p className="text-lg font-semibold text-gray-900">{result.calibrated ? 'Ready' : 'Uncalibrated'}</p>
               </div>
               <div className="bg-gray-50 p-4 rounded-xl text-center">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-1">Image Size</p>
@@ -100,14 +92,6 @@ export default function ImageDetectionPage() {
 
             <p className="text-sm text-gray-600 mb-4">This score is a model estimate, not measured accuracy. A low score means few familiar AI patterns were found; it does not prove the image is real. An inconclusive result means there is not enough reliable evidence.</p>
             {result.errors?.length > 0 && <p className="text-sm text-amber-800 mb-4">Some detectors could not complete their checks. Treat this result with caution.</p>}
-            {result.notes?.length > 0 && (
-              <div>
-                <h4 className="text-lg font-semibold mb-3">Analysis Notes</h4>
-                <ul className="space-y-2 text-sm text-gray-600 list-disc list-inside">
-                  {result.notes.map((note, index) => <li key={index}>{note}</li>)}
-                </ul>
-              </div>
-            )}
             </div>
           </div>
       )}

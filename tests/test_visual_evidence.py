@@ -36,7 +36,13 @@ class PortraitEvidenceTests(TestCase):
         self.assertEqual(result.overridden_by, "shared_portrait_detector")
 
     def test_borderline_face_score_does_not_flag_photo(self):
-        self.assertEqual(self.analyze(0.01, 0.98999).verdict, "uncertain")
+        self.assertEqual(self.analyze(0.01, 0.98999).verdict, "likely_authentic")
+
+    def test_image_verdict_cutoff(self):
+        for score, expected in [(0.299, "likely_authentic"), (0.30, "uncertain"),
+                                (0.301, "uncertain"), (0.90, "likely_ai_generated")]:
+            with self.subTest(score=score):
+                self.assertEqual(self.analyze(score, 0.01).verdict, expected)
 
     def test_low_face_score_preserves_scene_detection(self):
         self.assertEqual(self.analyze(0.93, 0.01).score_ai, 0.93)
