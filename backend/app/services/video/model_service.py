@@ -24,6 +24,9 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+PORTRAIT_MODEL = "dima806/deepfake_vs_real_image_detection"
+PORTRAIT_REVISION = "29e4cf9efc543845610045f6ba7e88e5cf9d9301"
+
 # Ordered list of models to try (most preferred first)
 FALLBACK_MODEL_CHAIN = [
     "dima806/deepfake_vs_real_image_detection",   # ViT-Base, 343MB, most reliable
@@ -97,8 +100,9 @@ class ModelService:
             from transformers import AutoImageProcessor, AutoModelForImageClassification
 
             logger.info("Trying HuggingFace model: %s ...", model_id)
-            processor = AutoImageProcessor.from_pretrained(model_id)
-            model = AutoModelForImageClassification.from_pretrained(model_id)
+            revision = {"revision": PORTRAIT_REVISION} if model_id == PORTRAIT_MODEL else {}
+            processor = AutoImageProcessor.from_pretrained(model_id, **revision)
+            model = AutoModelForImageClassification.from_pretrained(model_id, **revision)
 
             # Determine device index for model placement
             if self.device == "cuda":

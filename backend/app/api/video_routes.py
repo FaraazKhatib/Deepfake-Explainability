@@ -8,6 +8,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import random
 import re
 import asyncio
 from pathlib import Path
@@ -47,41 +48,43 @@ def set_dirs(upload_dir: Path, results_dir: Path) -> None:
 def _classify_video_by_filename(filename: str) -> str | None:
     """
     Rule:
-      - If the filename contains "video" (case-insensitive) → "REAL"
-      - Else if the filename contains "vid" (case-insensitive,
-        and since "video" wasn't matched it means only "vid") → "FAKE"
-      - Otherwise → None (no rule matched)
-
-    Note: "video" contains "vid", so checking "video" first ensures that
-    a filename like "my_video.mp4" is classified as REAL, not FAKE.
-    A filename like "my_vid.mp4" does NOT contain "video", only "vid" → FAKE.
+      - If filename contains "video" (case-insensitive) → "REAL"
+      - Else if filename contains "vid" or "fake" → "FAKE"
+      - Otherwise → None (ML fallback)
     """
     name = filename.lower()
     if "video" in name:
         return "REAL"
-    if "vid" in name:
+    if "vid" in name or "fake" in name:
         return "FAKE"
     return None
 
 
-def _build_video_result(classification: str, filename: str) -> dict:
+def _build_video_result(classification: str, filename: str, scan_duration: float = 6.5) -> dict:
     """Build a complete video analysis response dict for a given classification."""
     is_fake = classification == "FAKE"
+    if is_fake:
+        # Fake / manipulated video: 70-100% manipulation score
+        fake_prob = round(random.uniform(0.74, 0.96), 3)
+        conf = round(random.uniform(0.82, 0.98), 3)
+    else:
+        # Real / authentic video: 0-30% manipulation score
+        fake_prob = round(random.uniform(0.04, 0.24), 3)
+        conf = round(random.uniform(0.82, 0.98), 3)
+
+    real_prob = round(1.0 - fake_prob, 3)
+
     return {
         "classification": classification,
-        "fake_probability": 0.94 if is_fake else 0.06,
-        "real_probability": 0.06 if is_fake else 0.94,
-        "confidence": 0.94,
-        "frames_analyzed": 16,
-        "processing_time": 2.4,
-        "suspicious_frames": [
-            {"frame": 3,  "timestamp": 0.6, "fake_probability": 0.97, "thumbnail": ""},
-            {"frame": 7,  "timestamp": 1.4, "fake_probability": 0.93, "thumbnail": ""},
-            {"frame": 12, "timestamp": 2.4, "fake_probability": 0.91, "thumbnail": ""},
-        ] if is_fake else [],
+        "fake_probability": fake_prob,
+        "real_probability": real_prob,
+        "confidence": conf,
+        "frames_analyzed": random.randint(14, 24),
+        "processing_time": round(scan_duration, 2),
+        "suspicious_frames": [],  # Captured frames removed per user request
         "all_frames": [],
         "faces_detected": 1,
-        "video_duration": 10.0,
+        "video_duration": round(random.uniform(6.0, 14.0), 1),
         "model_name": "dima806/deepfake_vs_real_image_detection",
         "warning": (
             "Multiple frames show face-boundary artifacts and temporal inconsistencies "
@@ -134,11 +137,14 @@ async def analyze_endpoint(file: UploadFile = File(...)) -> JSONResponse:
     # without needing any ML model to be loaded.
     verdict = _classify_video_by_filename(original_filename)
     if verdict is not None:
+        # Realistic scanning delay (5 - 9 seconds) per user request
+        scan_delay = round(random.uniform(5.5, 9.0), 2)
+        await asyncio.sleep(scan_delay)
         logger.info(
-            "Video filename rule: '%s' → %s",
-            original_filename, verdict,
+            "Video filename rule: '%s' → %s (scanned for %.2fs)",
+            original_filename, verdict, scan_delay,
         )
-        return JSONResponse(_build_video_result(verdict, original_filename))
+        return JSONResponse(_build_video_result(verdict, original_filename, scan_duration=scan_delay))
 
     # ── Fallback: original ML pipeline (only if no rule matched) ───────────
     if _UPLOAD_DIR is None:

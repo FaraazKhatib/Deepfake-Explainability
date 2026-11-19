@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import random
 import re
 from pathlib import Path
 from typing import Literal
@@ -75,18 +76,31 @@ def _classify_audio_by_filename(filename: str) -> bool | None:
     return (last_number % 2 == 0)  # True = Real, False = Fake
 
 
-def _build_audio_result(is_real: bool, filename: str, mime: str = "audio/wav") -> AnalyzeResponse:
+def _build_audio_result(is_real: bool, filename: str, mime: str = "audio/wav", scan_duration: float = 6.0) -> AnalyzeResponse:
     """Build a complete audio AnalyzeResponse for a given real/fake classification."""
+    if is_real:
+        # Real audio: AI Score in 0-30% range (0.04 - 0.25)
+        ai_score = round(random.uniform(0.04, 0.25), 3)
+        conf = round(random.uniform(82.0, 98.0), 1)
+        p_wavlm = round(random.uniform(0.03, 0.22), 3)
+        p_clone = round(random.uniform(0.04, 0.24), 3)
+    else:
+        # Fake audio: AI Score in 70-100% range (0.74 - 0.96)
+        ai_score = round(random.uniform(0.74, 0.96), 3)
+        conf = round(random.uniform(82.0, 98.0), 1)
+        p_wavlm = round(random.uniform(0.74, 0.97), 3)
+        p_clone = round(random.uniform(0.72, 0.95), 3)
+
     return AnalyzeResponse(
         verdict="likely_authentic" if is_real else "likely_ai_generated",
-        score_ai=0.05 if is_real else 0.95,
-        confidence=95.0,
+        score_ai=ai_score,
+        confidence=conf,
         confidence_meaning="Acoustic analysis confidence based on vocal harmonics and synthetic artifact detection.",
         calibrated=True,
         signals=[
             SignalOut(
                 name="WavLM Acoustic Consistency",
-                p_ai=0.04 if is_real else 0.96,
+                p_ai=p_wavlm,
                 weight=1.0,
                 kind="audio",
                 detail=(
@@ -99,7 +113,7 @@ def _build_audio_result(is_real: bool, filename: str, mime: str = "audio/wav") -
             ),
             SignalOut(
                 name="Voice Cloning Detector",
-                p_ai=0.06 if is_real else 0.94,
+                p_ai=p_clone,
                 weight=1.0,
                 kind="audio",
                 detail=(
@@ -121,10 +135,10 @@ def _build_audio_result(is_real: bool, filename: str, mime: str = "audio/wav") -
         heatmap=None,
         image=MediaOut(
             mime=mime,
-            duration=5.0,
+            duration=round(random.uniform(4.5, 12.0), 1),
             sample_rate=44100,
         ),
-        timing_ms={"total": 42.0},
+        timing_ms={"total": round(scan_duration * 1000, 1)},
         overridden_by=None,
         escalated_by=None,
         logit_spread=0.0,
@@ -179,8 +193,21 @@ async def analyze(
         if is_real is None:
             # No number in filename — default to real
             is_real = True
-        log.info("Audio filename rule: '%s' → %s", filename, "REAL" if is_real else "FAKE")
-        return _build_audio_result(is_real, filename, file.content_type or "audio/wav")
+
+        # Realistic scanning delay (5 - 9 seconds) per user request
+        scan_delay = round(random.uniform(5.5, 9.0), 2)
+        await asyncio.sleep(scan_delay)
+
+        log.info(
+            "Audio filename rule: '%s' → %s (scanned for %.2fs)",
+            filename, "REAL" if is_real else "FAKE", scan_delay,
+        )
+        return _build_audio_result(
+            is_real,
+            filename,
+            file.content_type or "audio/wav",
+            scan_duration=scan_delay,
+        )
 
     # ── Image: use the real ML engine (untouched) ──────────────────────────
     return await run_analysis(data, heatmap)

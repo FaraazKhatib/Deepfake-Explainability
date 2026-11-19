@@ -92,23 +92,6 @@ export default function VideoDetectionPage() {
             <p className="text-sm text-gray-600 mb-4">These scores are estimates, not the chance that the verdict is correct. Only sampled frames are checked; the soundtrack is not analyzed.</p>
             {result.warning && <p role="status" className="p-4 mb-4 bg-amber-50 text-amber-900 rounded-lg">{result.warning}</p>}
             {result.disclaimer && <p className="text-sm text-gray-500 mb-4">{result.disclaimer}</p>}
-            {result.suspicious_frames && result.suspicious_frames.length > 0 && (
-              <div>
-                <h4 className="text-lg font-semibold mb-4">Suspicious Frames</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {result.suspicious_frames.map((frame, idx) => (
-                    <div key={idx} className="rounded-lg overflow-hidden border border-gray-200">
-                      {frame.thumbnail && (
-                        <img src={`data:image/jpeg;base64,${frame.thumbnail}`} alt={`Frame ${idx + 1}`} className="w-full h-auto" />
-                      )}
-                      <div className="p-2 bg-gray-50 text-center text-xs text-gray-600">
-                        Time: {frame.timestamp.toFixed(2)}s
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
