@@ -65,14 +65,18 @@ def claim_key(claims):
 
 
 def review_report(scan_id, action, source="", reason=""):
-    if action not in {"approve", "revoke"}:
-        raise ValueError("Choose approve or revoke.")
+    if action not in {"approve", "revoke", "dismiss"}:
+        raise ValueError("Choose approve, revoke, or dismiss.")
     with feedback_database() as db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT claims_json, suggested_verdict FROM feedback WHERE scan_id=?", (scan_id,)).fetchone()
         if not row:
             raise ValueError("Feedback report not found.")
         key = claim_key(json.loads(row[0]))
+        if action == "dismiss":
+            db.execute("DELETE FROM reviewed_verdicts WHERE claim_key=? AND report_id=?", (key, scan_id))
+            db.execute("DELETE FROM feedback WHERE scan_id=?", (scan_id,))
+            return
         if action == "revoke":
             deleted = db.execute("DELETE FROM reviewed_verdicts WHERE claim_key=? AND report_id=?", (key, scan_id))
             if not deleted.rowcount:
@@ -85,6 +89,40 @@ def review_report(scan_id, action, source="", reason=""):
             INSERT OR REPLACE INTO reviewed_verdicts (claim_key,report_id,verdict,source,reason)
             VALUES (?,?,?,?,?)
         """, (key, scan_id, row[1], source.strip(), reason.strip()))
+
+
+def get_all_feedback():
+    """Retrieve all submitted feedback entries with their active review status."""
+    with feedback_database() as db:
+        rows = db.execute("""
+            SELECT f.scan_id, f.claims_json, f.publisher, f.original_verdict,
+                   f.suggested_verdict, f.comment, f.updated_at,
+                   r.verdict, r.reason, r.source, r.reviewed_at
+            FROM feedback f
+            LEFT JOIN reviewed_verdicts r ON r.report_id = f.scan_id
+            ORDER BY f.updated_at DESC
+        """).fetchall()
+        items = []
+        for r in rows:
+            try:
+                parsed_claims = json.loads(r[1]) if r[1] else []
+            except Exception:
+                parsed_claims = [r[1]] if r[1] else []
+            items.append({
+                "scan_id": r[0],
+                "claims": parsed_claims,
+                "publisher": r[2] or "",
+                "original_verdict": r[3] or "",
+                "suggested_verdict": r[4] or "",
+                "comment": r[5] or "",
+                "updated_at": r[6] or "",
+                "approved_verdict": r[7] or None,
+                "review_reason": r[8] or None,
+                "review_source": r[9] or None,
+                "reviewed_at": r[10] or None,
+                "is_approved": bool(r[7]),
+            })
+        return items
 
 
 def apply_review(result):

@@ -271,6 +271,9 @@ class Settings:
 
 SETTINGS = Settings()
 
+# Collaborator admin secret key for reviewing and overriding verdicts
+ADMIN_SECRET_KEY = _env_str("VT_ADMIN_KEY", "veritrust-team-2026")
+
 
 def resolve_device(preference: str = DEVICE) -> str:
     """Return the torch device string, honouring 'auto'."""

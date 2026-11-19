@@ -74,3 +74,52 @@ export function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
+
+export async function verifyAdminKey(adminKey) {
+  const res = await fetch(`${API_BASE}/api/v1/text/feedback/verify-key`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Key': adminKey.trim(),
+    },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: 'Invalid key' }));
+    throw new Error(error.detail || error.message || 'Collaborator access denied');
+  }
+  return await res.json();
+}
+
+export async function fetchFeedbackList(adminKey) {
+  const res = await fetch(`${API_BASE}/api/v1/text/feedback/list`, {
+    headers: {
+      'X-Admin-Key': adminKey.trim(),
+    },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: 'Failed to fetch list' }));
+    throw new Error(error.detail || error.message || 'Could not load feedback');
+  }
+  return await res.json();
+}
+
+export async function reviewFeedback(adminKey, scanId, action, source = '', reason = '') {
+  const res = await fetch(`${API_BASE}/api/v1/text/feedback/review`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Key': adminKey.trim(),
+    },
+    body: JSON.stringify({
+      scan_id: scanId,
+      action,
+      source: source.trim(),
+      reason: reason.trim(),
+    }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: 'Review action failed' }));
+    throw new Error(error.detail || error.message || 'Action failed');
+  }
+  return await res.json();
+}

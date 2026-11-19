@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
-from ..feedback import VerdictFeedback, save_feedback
+from ..feedback import VerdictFeedback, save_feedback, get_all_feedback, review_report
 from ..exceptions import ModelLoadError
 from ..pipeline import FactCheckPipeline
 from ..retrieval.base import clear_cache
@@ -126,6 +127,62 @@ def submit_feedback(report: VerdictFeedback):
         logger.exception("Could not save verdict feedback")
         raise HTTPException(503, "Feedback storage is unavailable. Please retry.") from exc
     return {"status": "saved", "scan_id": str(report.scan_id)}
+
+
+class ReviewActionRequest(BaseModel):
+    scan_id: str
+    action: Literal["approve", "revoke", "dismiss"]
+    source: str = ""
+    reason: str = ""
+
+
+def _require_collaborator_key(request: Request) -> None:
+    provided = request.headers.get("X-Admin-Key") or request.query_params.get("admin_key")
+    if not provided or provided.strip() != config.ADMIN_SECRET_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Collaborator access denied. Invalid or missing administrator secret key."
+        )
+
+
+@router.post("/feedback/verify-key", summary="Verify collaborator admin key")
+def verify_admin_key(request: Request):
+    _require_collaborator_key(request)
+    return {"status": "ok", "message": "Collaborator key verified"}
+
+
+@router.get("/feedback/list", summary="List all feedback submissions for collaborator review")
+def list_feedback(request: Request):
+    _require_collaborator_key(request)
+    try:
+        items = get_all_feedback()
+        return {"items": items, "total": len(items)}
+    except Exception as exc:
+        logger.exception("Failed to query feedback database")
+        raise HTTPException(500, f"Error retrieving feedback list: {exc}")
+
+
+@router.post("/feedback/review", summary="Collaborator review action (approve, revoke, dismiss)")
+def process_feedback_review(payload: ReviewActionRequest, request: Request):
+    _require_collaborator_key(request)
+    try:
+        review_report(
+            scan_id=payload.scan_id,
+            action=payload.action,
+            source=payload.source,
+            reason=payload.reason,
+        )
+        return {
+            "status": "ok",
+            "scan_id": payload.scan_id,
+            "action": payload.action,
+            "message": f"Successfully performed action '{payload.action}' on report {payload.scan_id}."
+        }
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        logger.exception("Failed to process feedback review")
+        raise HTTPException(500, f"Internal error during feedback review: {exc}")
 
 
 @router.post(
