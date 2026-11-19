@@ -134,3 +134,31 @@ Image editing, screenshots, face swaps, music and mixed real/fake splices were n
 validated by this generated-image and speech benchmark. Low scores do not prove
 authenticity, and these diagnostic percentages must not be advertised as general
 system accuracy.
+
+## November 19 visual detector evaluation
+
+The unified backend now reuses its loaded Dima portrait model on face crops
+when Detectra scores an image and no dedicated face ensemble or fitted
+calibration is active. A face score of at least 0.99 can flag the image. A low
+face score cannot suppress the whole-image result. The video route also checks
+whole frames with its loaded Detectra model when the portrait analysis produces
+a real or uncertain verdict. At default settings, a positive scene verdict
+requires at least four scored samples, 75% at or above 0.65, and a median of at
+least 0.80. Its timeline then reports the whole-frame scores.
+
+The local evaluation folder contained 32 distinct images. Within each labeled
+subfolder, files were sorted by SHA256 and assigned alternately to development
+and test, starting with development. The held-out images included nine generated
+images, one face swap, one camera image and four edited real images. The previous
+default marked all 15 uncertain. The updated pipeline flagged the ten labeled
+fakes and marked the five labeled real images uncertain. The split protects
+against exact file reuse between development and test. Identity, source and
+model-training overlap are unknown.
+
+Two separately labeled videos were used during development. The face-only model
+abstained on the fake and called the real clip real. The full-frame model flagged
+13 of 16 frames on the fake and zero on the real clip. These two examples provide
+no independent video accuracy estimate. In particular, performance on clips
+containing animation, game footage, or just a short manipulated segment remains
+unmeasured. The local manifest evaluator in `scripts/evaluate.py` loads both
+pathways for future image and video evaluations.

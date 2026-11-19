@@ -1,11 +1,27 @@
 // Development requests use Vite's same-origin proxy so localhost/127.0.0.1
 // and browser origin policies do not prevent uploads.
-const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'http://localhost:8001');
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'http://127.0.0.1:8001');
+
+async function requestJson(url, options) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (error) {
+    throw new Error(
+      `Cannot connect to the analysis backend at ${API_BASE || 'this Vite server'}. ` +
+      'Make sure the backend is running on 127.0.0.1:8001.'
+    );
+  }
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+    throw new Error(error.detail || error.error || error.message || 'Server error');
+  }
+  return await res.json();
+}
 
 export async function checkHealth() {
-  const res = await fetch(`${API_BASE}/api/v1/video/health`);
-  if (!res.ok) throw new Error('Backend unavailable');
-  return res.json();
+  return await requestJson(`${API_BASE}/api/v1/video/health`);
 }
 
 async function uploadFile(endpoint, file, onStage) {
@@ -13,12 +29,7 @@ async function uploadFile(endpoint, file, onStage) {
   formData.append('file', file);
   onStage?.('uploading');
 
-  const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: formData });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(error.detail || error.error || error.message || 'Server error');
-  }
-  return await res.json();
+  return await requestJson(`${API_BASE}${endpoint}`, { method: 'POST', body: formData });
 }
 
 export async function analyzeVideo(file, onStage) {
@@ -36,7 +47,7 @@ export async function analyzeAudio(file, onStage) {
 export async function analyzeText(text, onStage, options = {}) {
   onStage?.('analyzing');
   const { single_claim = false, strict_mode = false } = options;
-  const res = await fetch(`${API_BASE}/api/v1/text/check-news`, {
+  return await requestJson(`${API_BASE}/api/v1/text/check-news`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -47,24 +58,14 @@ export async function analyzeText(text, onStage, options = {}) {
       include_evidence: true,
     })
   });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(error.message || error.detail || 'Server error');
-  }
-  return await res.json();
 }
 
 export async function translateText(text) {
-  const res = await fetch(`${API_BASE}/api/v1/text/translate`, {
+  return await requestJson(`${API_BASE}/api/v1/text/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text })
   });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-    throw new Error(error.message || error.detail || 'Translation failed');
-  }
-  return await res.json();
 }
 
 export function formatBytes(bytes) {

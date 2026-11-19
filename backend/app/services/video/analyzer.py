@@ -13,6 +13,7 @@ import base64
 import io
 import logging
 import math
+from statistics import median
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -69,6 +70,7 @@ def analyze_video(
     fake_threshold: float = 0.5,
     suspicious_threshold: float = 0.6,
     progress_callback: Callable[[str], None] | None = None,
+    scene_detector=None,
 ) -> AnalysisResult:
     """
     Full end-to-end video deepfake analysis pipeline.
@@ -161,6 +163,32 @@ def analyze_video(
     mixed = min(fake_probs) <= lower and max(fake_probs) >= upper
     if mixed or frames_failed or faces_detected == 0:
         classification = "UNCERTAIN"
+    scene_note = ""
+    model_name = svc.model_name
+    expected_samples = min(num_frames, metadata.get("total_frames", len(frames)))
+    if (scene_detector is not None and classification != "FAKE" and not frames_failed
+            and len(frames) == expected_samples and len(frames) >= 4):
+        scene_scores = []
+        for rec in frames:
+            reading = scene_detector.predict(rec.image)
+            if not reading.usable:
+                scene_note = "The supplementary whole-frame check was incomplete. "
+                break
+            scene_scores.append(reading.p_fake)
+        else:
+            # Require sustained evidence across the video. An isolated graphic,
+            # transition or title card must not determine the clip verdict.
+            typical = median(scene_scores)
+            positives = sum(score >= upper for score in scene_scores)
+            if positives * 4 >= 3 * len(frames) and typical >= max(0.8, upper):
+                classification = "FAKE"
+                final_fake_prob = round(typical, 4)
+                final_real_prob = round(1 - final_fake_prob, 4)
+                model_name = f"{svc.model_name} + {scene_detector.key}"
+                scene_note = (f"The whole-frame detector flagged {positives}/{len(frames)} "
+                              "sampled frames. The timeline shows its scores. ")
+                for frame_result, score in zip(frame_results, scene_scores):
+                    frame_result.fake_probability = round(score, 4)
     confidence = 0.0 if classification == "UNCERTAIN" else abs(2 * final_fake_prob - 1)
 
     # ── 5. Suspicious frames ──────────────────────────────────────────────────
@@ -173,9 +201,9 @@ def analyze_video(
     _emit("generating_report")
     processing_time = round(time.time() - t_start, 2)
 
-    warning = ""
+    warning = scene_note
     if mixed:
-        warning += "Different parts of the video gave conflicting results. Review the flagged frames. "
+        warning += "The face-model scores varied across sampled frames. "
     if frames_failed:
         warning += f"Could not score {frames_failed} sampled frame(s). The result is incomplete. "
     if faces_detected == 0 and len(frames) > 0:
@@ -195,7 +223,7 @@ def analyze_video(
         all_frames=frame_results,
         faces_detected=faces_detected,
         video_duration=round(video_duration, 2),
-        model_name=svc.model_name,
+        model_name=model_name,
         warning=warning,
         frames_failed=frames_failed,
     )

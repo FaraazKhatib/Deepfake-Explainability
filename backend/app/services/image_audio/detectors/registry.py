@@ -113,6 +113,10 @@ class Registry:
             self.audio = self._build(tuple(s for s in specs if s.kind == "audio"), factory=HFAudioClassifier)
 
     @property
+    def scene_detector(self):
+        return next((detector for detector in self.synthetic if detector.key == "detectra_openfake"), None)
+
+    @property
     def any_ready(self) -> bool:
         return bool(self.synthetic or self.face or self.audio)
 

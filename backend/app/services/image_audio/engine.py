@@ -20,7 +20,7 @@ so the frontend never has to test which kind of result it received before readin
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 from . import provenance
@@ -319,6 +319,30 @@ class Engine:
         started = time.perf_counter()
         face_payload: list[dict] = []
         detection = self.face_detector.detect(decoded.image)
+        fusion_config = self.settings.fusion
+        # With Detectra alone, a generated or swapped face can occupy too little
+        # of the scene to register. Reuse the already loaded portrait checkpoint.
+        shared_face_checked = False
+        if (detection.faces and not self.registry.face and not self.calibration.fitted
+                and any(s.name == "detectra_openfake" for s in signals)
+                and fusion_config.face_weight > 0):
+            from app.services.video.model_service import PORTRAIT_MODEL, get_model_service
+            try:
+                service = get_model_service()
+                if service.is_loaded and service.model_name == PORTRAIT_MODEL:
+                    peak = 0.0
+                    for index, face in enumerate(detection.faces):
+                        crop = crop_with_margin(decoded.image, face.box, self.settings.face_margin)
+                        score = service.predict_frame(crop)
+                        peak = max(peak, score)
+                        face_payload.append({**face.as_dict(), "index": index, "p_ai": round(score, 4)})
+                    shared_face_checked = True
+                    if peak >= max(0.99, self.settings.thresholds.ai_min):
+                        signals.append(Signal(name="shared_portrait_detector", p_fake=peak,
+                                              weight=1.0, kind=FACE, detail=service.model_name))
+                        fusion_config = replace(fusion_config, face_decides=True)
+            except (RuntimeError, ValueError) as exc:
+                errors.append({"detector": "shared_portrait_detector", "error": str(exc)})
         if detection.faces and self.registry.face:
             per_face_scores: list[float] = []
             for index, face in enumerate(detection.faces):
@@ -365,7 +389,7 @@ class Engine:
         timing["faces"] = (time.perf_counter() - started) * 1000
 
         started = time.perf_counter()
-        result = fuse(signals, self.settings.thresholds, self.settings.fusion, self.calibration)
+        result = fuse(signals, self.settings.thresholds, fusion_config, self.calibration)
         timing["fusion"] = (time.perf_counter() - started) * 1000
 
         # A current positive can be a useful review flag, but the configured image checkpoints
@@ -402,6 +426,8 @@ class Engine:
             notes.append(
                 "No faces found. We only checked the whole image."
             )
+        elif shared_face_checked:
+            notes.append("Checked detected faces separately for localized manipulation.")
         elif detection.faces and not self.registry.face:
             notes.append(
                 f"Found {len(detection.faces)} face(s), but face analysis is unavailable. We only "

@@ -24,12 +24,10 @@ for row in rows:
     if row.get('label') not in valid: parser.error(f'Invalid label; expected {valid}')
 
 engine = video = text_pipeline = None
-if any(r['modality'] in {'image','audio'} for r in rows):
+if any(r['modality'] in {'image','audio','video'} for r in rows):
     from app.services.image_audio.engine import Engine
     engine = Engine(); engine.load()
-if any(r['modality']=='video' for r in rows) or (
-    any(r['modality']=='image' for r in rows) and engine is not None and not engine.registry.synthetic
-):
+if any(r['modality'] in {'image','video'} for r in rows):
     from app.config import settings
     from app.services.video.model_service import init_model_service
     from app.services.video.analyzer import analyze_video
@@ -51,7 +49,10 @@ for row in rows:
         else:
             path = (args.manifest.resolve().parent/row['path']).resolve()
             if modality == 'video':
-                raw = analyze_video(str(path))
+                raw = analyze_video(str(path), num_frames=settings.num_frames,
+                                    fake_threshold=settings.fake_threshold,
+                                    suspicious_threshold=settings.suspicious_frame_threshold,
+                                    scene_detector=engine.registry.scene_detector)
                 predicted = {'FAKE':'fake','REAL':'real','UNCERTAIN':'uncertain'}[raw.classification]
                 result['score'] = raw.fake_probability
                 result['model'] = raw.model_name

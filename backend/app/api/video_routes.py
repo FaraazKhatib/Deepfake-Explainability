@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 
 from app.config import settings
+from app.api.image_audio_routes import engine as media_engine
 from app.services.video.analyzer import analyze_video
 from app.services.video.model_service import get_model_service
 from app.utils.file_utils import (
@@ -164,6 +165,7 @@ async def analyze_endpoint(file: UploadFile = File(...)) -> JSONResponse:
                 num_frames=settings.num_frames,
                 fake_threshold=settings.fake_threshold,
                 suspicious_threshold=settings.suspicious_frame_threshold,
+                scene_detector=media_engine.registry.scene_detector,
             )
     except ValueError as exc:
         safe_delete(temp_path)
